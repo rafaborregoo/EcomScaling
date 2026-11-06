@@ -2,6 +2,8 @@
 
 Fecha: 1 de noviembre de 2026, Europe/Madrid. Alcance: completar las piezas parciales de inventario, medición compartida y controles iniciales de entrega. Este documento sustituye el estado operativo de los dos avances anteriores; sus snapshots se conservan como evidencia histórica.
 
+Actualización: [la validación del 2 de noviembre](VALIDACION_AISLADA_Y_ESTADO_2026-11-02.md) acredita los resultados del candidato aislado y el estado posterior del repositorio y producción. El parche histórico ya está incorporado al repositorio; no debe reaplicarse sobre HEAD actual.
+
 ## Estado que se puede acreditar
 
 | Bloque | Resultado de esta entrega | Condición pendiente para su cierre operativo |

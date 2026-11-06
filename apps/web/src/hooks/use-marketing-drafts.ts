@@ -5,6 +5,7 @@ import { useCachedQuery } from "@/lib/use-cached-query";
 import type { TemplateDesign } from "@/app/marketing/template-design";
 import type { StudioDesign } from "@/app/marketing/studio/studio-design";
 import type { PieceThread } from "@/app/marketing/piece-analysis";
+import type { RealMarketingLab, MarketingSpecialistTrace } from "@/app/marketing/model-comparison";
 
 /**
  * Carga de borradores de marketing, fuera del componente de pagina.
@@ -25,12 +26,14 @@ export type MarketingDraft = {
     channel?: string;
     content_type?: string;
     brief?: string;
-    ai_lab?: {
-      model: string;
-      model_label: string;
-      synthetic: boolean;
-      estimated_api_cost_low: number;
-      estimated_api_cost_high: number;
+    ai_lab?: RealMarketingLab;
+    lab_original_output?: Record<string, unknown>;
+    specialist_pipeline?: MarketingSpecialistTrace;
+    overlay_composition?: {
+      overlay_id: string;
+      revision: string;
+      preview_error?: string;
+      assets: Array<{ url: string; alt_text?: string; slide_index: number }>;
     };
     /** Versión 1: editor anterior. Versión 2: estudio de contenido. */
     design?: TemplateDesign | StudioDesign;

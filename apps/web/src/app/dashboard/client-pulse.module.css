@@ -55,12 +55,19 @@
 }
 
 /* Los bloques grandes agrupan componentes sin añadir otra tarjeta exterior. */
-:global(#portal-content[data-role]) .root :is(.hero, .panel, .pChart) {
+:global(#portal-content[data-role]) .root .pChart {
   padding-inline: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+}
+:global(#portal-content[data-role]) .root :is(.hero, .panel) {
+  padding: 20px;
+  border: 0;
+  border-radius: var(--glass-radius);
+  background: var(--glass-surface);
+  box-shadow: var(--glass-edge);
 }
 
 /* Analítica conserva los nombres y logos de cada canal. Shopify lleva el verde de su
@@ -2501,45 +2508,12 @@
   gap: 8px;
   max-width: 64rem;
 }
-.prio .pMeta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  color: var(--ink-3);
-  font-size: 13px;
-}
-.prio .pMeta span:first-child {
-  color: var(--ink-2);
-  font-weight: 600;
-}
-.prio .pMeta span::first-letter {
-  text-transform: uppercase;
-}
 .prio .pTitle {
   max-width: 40ch;
   color: var(--ink);
   font: 600 28px/1.25 var(--f-display);
   letter-spacing: -0.015em;
   text-wrap: balance;
-}
-.prio .pHeadFoot {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 16px;
-  margin-top: 4px;
-  color: var(--ink-3);
-  font-size: 13px;
-}
-.prio .pStamp {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 9px;
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent-ink);
 }
 .linkBtn {
   padding: 0;
@@ -2663,12 +2637,6 @@
   grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
   gap: 48px;
   align-items: start;
-}
-.workspace .prio .pMain .panel {
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
 }
 .workspace .prio .pMain .panelH h3 {
   font-size: 20px;
@@ -2963,7 +2931,7 @@
   color: var(--ink-2);
 }
 .workspace .prio .pMain .qiA .btn,
-.workspace .prio .pMain .panel > .btn {
+.workspace .prio .pMain > .btn {
   min-height: 32px;
   padding: 0 12px;
   border: 0;
@@ -2977,7 +2945,7 @@
   font-weight: 600;
 }
 .workspace .prio .pMain .qiA .btn:hover,
-.workspace .prio .pMain .panel > .btn:hover {
+.workspace .prio .pMain > .btn:hover {
   background: var(--surface-2);
   color: var(--ink);
 }
@@ -2998,7 +2966,7 @@
 /* ---------- Prioridades en tarjetas ----------
    Una tarjeta por bloque (Prioridades, Vigilar, Canales, consultor); dentro,
    filas separadas por una línea fina y sin barras laterales. */
-.workspace .prio .pMain .panel {
+.workspace .prio .pMain {
   padding: 24px;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -3713,15 +3681,6 @@ ol.qiSteps {
 .pChartKpi[aria-pressed="true"] .pChartKpiValue {
   color: var(--serie);
 }
-.pChartKpi[aria-pressed="false"] .pChartKpiValue {
-  color: #85817d;
-}
-.pChartKpi[aria-pressed="false"] {
-  opacity: 0.55;
-}
-.pChartKpi[aria-pressed="false"] .pChartKpiLabel i {
-  background: #b9b5b1;
-}
 .pChartKpi:hover .pChartKpiLabel {
   color: var(--serie);
 }
@@ -3736,7 +3695,7 @@ ol.qiSteps {
   gap: 7px;
   min-width: 0;
   color: #696664;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   line-height: 1.35;
 }
@@ -3765,8 +3724,8 @@ ol.qiSteps {
   min-height: 18px;
 }
 .pChartPrevious {
-  color: #85817d;
-  font-size: 12px;
+  color: #696664;
+  font-size: 14px;
   line-height: 1.4;
   white-space: nowrap;
 }
@@ -3779,6 +3738,30 @@ ol.qiSteps {
   outline: 2px solid #c9c2ef;
   outline-offset: 3px;
   border-radius: 5px;
+}
+.pChartLegend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+  padding: 0 8px 12px;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+.pChartLegend strong {
+  margin-right: auto;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+}
+.pChartLegend span { display: inline-flex; align-items: center; gap: 8px; }
+.pChartLegend i {
+  width: 18px;
+  border-top: 2.25px solid var(--serie);
+}
+.pChartLegend i[data-previous] {
+  border-top: 1.5px dashed var(--serie);
+  opacity: 0.6;
 }
 .pChartSvg {
   display: block;
@@ -3872,8 +3855,8 @@ ol.qiSteps {
 @media (max-width: 520px) {
   .prio .pChart { gap: 8px; padding: 15px 13px 10px; }
   .pChartKpiValue { font-size: 22px; }
-  .pChartKpiLabel { font-size: 12px; }
-  .pChartPrevious { font-size: 11px; }
+  .pChartKpiLabel { font-size: 14px; }
+  .pChartPrevious { font-size: 12px; }
   .pChartRowLabel,
   .pChartXAxis { font-size: 11px; }
 }
@@ -3881,4 +3864,489 @@ ol.qiSteps {
 /* Resto de la cola, dentro del plegable: su primera fila conserva la raya. */
 .qiMore > .qi:first-child {
   border-top: 1px solid var(--line-2);
+}
+
+/* ---------- Portada en cristal ----------
+   El lienzo claro (blanco con brillos morados) es el fondo de la propia
+   página; la portada no tiene caja y cada bloque es una
+   lámina de cristal blanco translúcido que deja ver el color.
+   Prefijo con #portal-content para ganar a las reglas de tema de arriba. */
+:global(#portal-content[data-role]) .workspace.workspace .root.root.glass[data-glass] {
+  --g-sales: var(--nora-purple);
+  --g-orders: var(--nora-dash-blue);
+  --g-profit: var(--nora-dash-green);
+  --g-conversion: var(--nora-dash-pink);
+
+  gap: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+/* La lámina de cristal, la misma para todos los bloques (en :where para que
+   cada bloque pueda cambiar su fondo sin pelear por especificidad). */
+:global(#portal-content) .workspace .root.glass :where(.gHero, .gLive, .gMk, .gCard, .pMain, .pBlock, .pKpis .kpi, .kpiDetail) {
+  border: 0;
+  border-radius: var(--glass-radius);
+  background: var(--glass-surface);
+  box-shadow: var(--glass-edge);
+}
+
+:global(#portal-content) .workspace .root.glass :is(.delta, .pRow, button) { border-radius: var(--glass-radius); }
+
+/* Titular */
+:global(#portal-content) .workspace .root.glass .pHead { max-width: none; }
+.gHeadText { display: grid; gap: 6px; min-width: 0; }
+:global(#portal-content) .workspace .root.glass .pTitle {
+  max-width: 72ch;
+  color: var(--ink-2);
+  font: 400 20px/1.45 var(--f-body);
+  letter-spacing: 0;
+}
+
+/* Escenario: la curva grande y, al lado, las ventas día a día. */
+.gStage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: 20px;
+  align-items: stretch;
+}
+:global(#portal-content) .workspace .root.glass .gHero {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  min-width: 0;
+  padding: 24px;
+  overflow: hidden;
+  background:
+    radial-gradient(36rem 22rem at 92% -10%, rgb(98 86 201 / 0.06), transparent 64%),
+    radial-gradient(28rem 20rem at -6% 106%, rgb(98 86 201 / 0.04), transparent 70%),
+    linear-gradient(180deg, var(--nora-glass-strong), var(--nora-glass));
+}
+.gHeroTop { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.gPill,
+.gBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.75);
+  box-shadow: 0 0 0 1px var(--nora-glass-line);
+  color: var(--ink-2);
+  font-size: 14px;
+  font-weight: 500;
+}
+.gBadge { border-radius: var(--glass-radius); font-weight: 600; font-variant-numeric: tabular-nums; }
+/* Aire entre la píldora y las cifras: el alto de una línea de título. */
+
+/* La curva dentro del héroe: cifras grandes sin caja y el gráfico en su lámina. */
+:global(#portal-content) .workspace .root.glass .pChart {
+  gap: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+}
+:global(#portal-content) .workspace .root.glass .pChartKpis {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+:global(#portal-content) .workspace .root.glass .pChartKpiWrap { display: flex; align-items: flex-start; gap: 4px; }
+:global(#portal-content) .workspace .root.glass .pChartKpiNotice { position: static; }
+:global(#portal-content) .workspace .root.glass .pChartKpi {
+  width: 100%;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: var(--glass-radius);
+  background: rgb(255 255 255 / 0.45);
+  box-shadow: inset 0 0 0 1px var(--nora-glass-line);
+}
+:global(#portal-content) .workspace .root.glass .pChartKpi[aria-pressed="true"] {
+  background: rgb(255 255 255 / 0.75);
+  box-shadow: inset 0 0 0 1.5px var(--serie);
+}
+:global(#portal-content) .workspace .root.glass .pChartKpiValue {
+  order: -1;
+  font-size: 28px;
+  letter-spacing: -0.02em;
+}
+:global(#portal-content) .workspace .root.glass .pChartKpi[aria-pressed="true"] .pChartKpiValue { color: var(--ink); }
+:global(#portal-content) .workspace .root.glass .pChartKpi[aria-pressed="true"] .pChartKpiLabel { color: var(--ink-2); }
+:global(#portal-content) .workspace .root.glass .pChartKpi:hover .pChartKpiLabel { color: var(--serie); }
+:global(#portal-content) .workspace .root.glass .pChart > :last-child {
+  padding: 16px 8px 8px;
+  border-radius: var(--glass-radius);
+  background: rgb(255 255 255 / 0.6);
+  box-shadow: inset 0 0 0 1px var(--nora-glass-line);
+}
+
+
+/* Ventas por día */
+:global(#portal-content) .workspace .root.glass .gLive {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 22px;
+}
+.gLiveHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.gLiveHead :is(h2, h3) { color: var(--ink); font: 600 20px/1.3 var(--f-display); }
+.gLiveHead p { color: var(--ink-2); font-size: 14px; }
+.gLivePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--nora-purple-100);
+  color: var(--nora-dash-accent-hover);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.gLivePill i { width: 8px; height: 8px; border-radius: 50%; background: var(--nora-purple); box-shadow: 0 0 8px rgb(98 86 201 / 0.6); }
+:global(#portal-content) .workspace .root.glass .gLiveV {
+  color: var(--ink);
+  font: 600 28px/1.15 var(--f-num);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.gLiveV small { margin-left: 8px; color: var(--ink-2); font-size: 14px; font-weight: 400; letter-spacing: 0; }
+.gBars { display: flex; gap: 3px; height: 150px; }
+.gBars > span { --tip-at: calc(100% * var(--share)); display: flex; flex: 1 1 0; align-items: flex-end; min-width: 2px; height: 100%; }
+.gBars i {
+  flex: 1 1 0;
+  height: calc(100% * var(--share));
+  border-radius: 4px 4px 1px 1px;
+  background: linear-gradient(180deg, rgb(98 86 201 / 0.42), rgb(98 86 201 / 0.16));
+}
+.gBars > span:last-child i {
+  background: linear-gradient(180deg, var(--nora-purple), var(--nora-purple-light));
+  box-shadow: 0 0 16px rgb(98 86 201 / 0.4);
+}
+.gBars > span:hover i { background: var(--nora-purple); }
+/* Toda la columna responde al ratón, también sobre una barra baja. */
+.gTip { position: relative; cursor: default; }
+.gTip::after {
+  content: attr(data-tip);
+  position: absolute;
+  z-index: 3;
+  bottom: calc(var(--tip-at) + 6px);
+  left: 50%;
+  padding: 4px 8px;
+  border-radius: var(--glass-radius);
+  background: var(--ink);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition: opacity 120ms ease;
+}
+.gTip:hover::after { opacity: 1; }
+.gTip[data-edge="start"]::after { left: 0; transform: none; }
+.gTip[data-edge="end"]::after { right: 0; left: auto; transform: none; }
+.gBarsAxis { display: flex; justify-content: space-between; margin-top: -6px; color: var(--ink-2); font-size: 12px; }
+.gTop { display: grid; margin-top: auto; padding-top: 6px; border-top: 1px solid var(--line); }
+.gTopBlock { display: grid; gap: 8px; padding-top: 16px; border-top: 1px solid var(--nora-glass-line); }
+.gTop li {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  color: var(--ink);
+  font-size: 14px;
+}
+.gTop li > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gTop b { font-weight: 600; }
+.gTopN {
+  display: grid;
+  place-items: center;
+  height: 28px;
+  border-radius: var(--glass-radius);
+  background: rgb(255 255 255 / 0.8);
+  box-shadow: inset 0 0 0 1px var(--nora-glass-line);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Canales: una lámina por plataforma, teñida con su color. */
+.gCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
+:global(#portal-content) .workspace .root.glass .gCard {
+  --tint: var(--store);
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 20px 22px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--tint) 13%, var(--nora-glass-strong)), var(--nora-glass) 72%);
+  color: var(--ink);
+  text-decoration: none;
+  transition: box-shadow 160ms ease, transform 160ms ease;
+}
+:global(#portal-content) .workspace .root.glass .gCard[data-channel="meta"] { --tint: var(--meta); }
+:global(#portal-content) .workspace .root.glass .gCard[data-channel="klaviyo"] { --tint: var(--klaviyo); }
+:global(#portal-content) .workspace .root.glass .gCard:hover {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.9), 0 0 0 1px color-mix(in srgb, var(--tint) 30%, transparent), 0 12px 32px -22px rgb(61 59 58 / 0.14);
+  transform: translateY(-1px);
+}
+.gCardL { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 14px; font-weight: 500; }
+.gCardL i { width: 8px; height: 8px; border-radius: 50%; background: var(--tint); }
+/* Estado de la conexión, aparte de la cifra: conectado no es un resultado. */
+.gCardS {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.75);
+  box-shadow: inset 0 0 0 1px var(--nora-glass-line);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.gCardS:is([data-sync="stale"], [data-sync="failed"]) { color: var(--warn); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 35%, transparent); }
+.gCardS[data-sync="reconnect"] { color: var(--bad); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 35%, transparent); }
+:global(#portal-content) .workspace .root.glass .gCardV {
+  color: var(--ink);
+  font: 600 28px/1.15 var(--f-num);
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+:global(#portal-content) .workspace .root.glass .gCardV[data-empty] { color: var(--ink-2); font-size: 20px; line-height: 1.6; }
+/* Vacía, la lámina se queda en una línea: el espacio es para lo que tiene datos. */
+:global(#portal-content) .workspace .root.glass .gMk .empty { padding: 12px 0 4px; }
+/* Vigilar: gravedad, qué significa y por dónde se resuelve. */
+.gSignal {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 10px;
+  padding: 10px 0;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.4;
+  text-decoration: none;
+}
+.gSignal > b { color: var(--ink); font-weight: 600; }
+.gSignal > span:not(.gSignalSev) { grid-column: 2; }
+.gSignalSev {
+  align-self: start;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.gSignalSev[data-tone="bad"] { background: color-mix(in srgb, var(--bad) 12%, white); color: var(--bad); }
+.gSignalSev[data-tone="warn"] { background: color-mix(in srgb, var(--warn) 14%, white); color: var(--warn); }
+.gCardF { display: grid; grid-template-columns: minmax(0, 1fr) 96px; align-items: end; gap: 12px; }
+.gCardF:not(:has(.spark)) { grid-template-columns: minmax(0, 1fr); }
+.gCardD { color: var(--ink-2); font-size: 14px; line-height: 1.45; }
+.gNote { margin-top: 10px; color: var(--ink-2); font-size: 12px; }
+
+/* Campañas y anuncios: una lámina con dos pestañas y una tabla corta. */
+:global(#portal-content) .workspace .root.glass .gMk {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  position: relative;
+  min-width: 0;
+  padding: 22px 24px;
+}
+/* Sin titular, la nota del consultor se queda en la esquina. */
+.gMkNote { position: absolute; top: 12px; right: 16px; z-index: 2; }
+/* La fila entera abre la ficha: el enlace del nombre la cubre, sin JS. */
+:global(#portal-content) .workspace .root.glass .gMkRow { position: relative; }
+:global(#portal-content) .workspace .root.glass .gMkRow:has(a.gMkName):hover { background: var(--nora-glass-line); }
+:global(#portal-content) .workspace .root.glass a.gMkName::after { content: ""; position: absolute; inset: 0; }
+:global(#portal-content) .workspace .root.glass .gMkRow:has(a.gMkName:focus-visible) { outline: 2px solid var(--nora-purple); outline-offset: -2px; }
+:global(#portal-content) .workspace .root.glass a.gMkName:focus-visible { outline: none; }
+:global(#portal-content) .workspace .root.glass .gMk :global(.ui-table__row) { border-color: var(--nora-glass-line); }
+:global(#portal-content) .workspace .root.glass .gMk :global(.ui-table__head) { color: var(--ink-2); font-size: 14px; font-weight: 500; }
+:global(#portal-content) .workspace .root.glass .gMk :global(.ui-table__cell) { padding-block: 12px; color: var(--ink); font-size: 14px; }
+:global(#portal-content) .workspace .root.glass .gMk :is(th, td).gMkN { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+:global(#portal-content) .workspace .root.glass .gMkName { display: block; color: var(--ink); font-weight: 600; text-decoration: none; }
+:global(#portal-content) .workspace .root.glass a.gMkName:hover { color: var(--nora-purple); }
+.gMkSub { display: block; color: var(--ink-2); font-size: 14px; }
+
+/* Prioridades como lista de conversación: avatar, una línea de contexto, la
+   tarea, y a la derecha un icono discreto y la acción principal. */
+/* Lista sencilla: quién y cuándo en una línea, la tarea en otra, una acción clara. */
+.qiAv,
+.qiMine,
+.qSumHint,
+.qiCheck .btnLabel { display: none; }
+:global(#portal-content) .workspace .root.glass .pMain .qi {
+  grid-template-columns: 32px minmax(0, 1fr) auto auto;
+  align-items: start;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--nora-glass-line);
+  border-radius: 0;
+  background: transparent;
+}
+:global(#portal-content) .workspace .root.glass .pMain li.qi:first-child { border-top: 0; }
+:global(#portal-content) .workspace .root.glass .pMain .qi > span:not(.qiAv) { display: none; }
+:global(#portal-content) .workspace .root.glass .pMain .qi > .qiCheck { grid-area: 1 / 4; }
+:global(#portal-content) .workspace .root.glass .pMain .qi > .qiA { grid-area: 1 / 3; min-height: 40px; gap: 2px; }
+:global(#portal-content) .workspace .root.glass .pMain .qiAv {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--nora-purple-100);
+  color: var(--nora-dash-accent-hover);
+  font-size: 11px;
+  font-weight: 600;
+}
+:global(#portal-content) .workspace .root.glass .pMain .qiAv[data-tone="ia"] { background: var(--nora-purple); color: #fff; }
+:global(#portal-content) .workspace .root.glass .pMain .qiAv[data-tone="urgent"] { background: color-mix(in srgb, var(--bad) 14%, white); color: var(--bad); }
+:global(#portal-content) .workspace .root.glass .pMain .qiAv[data-tone="high"] { background: color-mix(in srgb, var(--warn) 16%, white); color: var(--warn); }
+/* El cuerpo reparte: contexto en la primera línea, la tarea debajo. */
+:global(#portal-content) .workspace .root.glass .pMain .qi > div:not(.qiA) {
+  grid-area: 1 / 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+}
+:global(#portal-content) .workspace .root.glass .pMain .qi > div:not(.qiA) > * { flex-basis: 100%; min-width: 0; }
+:global(#portal-content) .workspace .root.glass .pMain .qi > div:not(.qiA) > .qiK { flex-basis: auto; order: -3; margin: 0 !important; color: var(--ink-2); font-size: 14px; letter-spacing: 0; text-transform: none; }
+:global(#portal-content) .workspace .root.glass .pMain .qi > div:not(.qiA) > .qiM { flex: 0 1 auto; order: -2; margin: 0; gap: 2px 8px; }
+:global(#portal-content) .workspace .root.glass .pMain .qiM .chip { display: inline-block; height: auto; max-width: min(100%, 32ch); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:global(#portal-content) .workspace .root.glass .pMain .qiK :is(.ia, .qiHint) { display: none; }
+:global(#portal-content) .workspace .root.glass .pMain :is(.qiSource, .qiMine, .who) { display: inline; color: var(--ink); font-size: 14px; font-weight: 600; }
+:global(#portal-content) .workspace .root.glass .pMain .who i,
+:global(#portal-content) .workspace .root.glass .pMain .qiK ~ .qiM .who { display: none; }
+:global(#portal-content) .workspace .root.glass .pMain .qiT { color: var(--ink); font-size: 16px; font-weight: 400; }
+/* «Por qué» cabe en la línea de contexto; abierto, baja debajo de la tarea. */
+:global(#portal-content) .workspace .root.glass .pMain .qi > div:not(.qiA) > .qiD { flex: 0 0 auto; order: -1; margin: 0; font-size: 14px; }
+:global(#portal-content) .workspace .root.glass .pMain .qi > div:not(.qiA) > .qiD:has([aria-expanded="true"]) { flex-basis: 100%; order: 0; }
+:global(#portal-content) .workspace .root.glass .pMain .qiD [data-slot="collapsible-trigger"] { font-size: 14px; white-space: nowrap; }
+/* Cerrado, el texto oculto no debe ensanchar la línea. */
+:global(#portal-content) .workspace .root.glass .pMain .qiD :global(.ui-collapsible__panel) { contain: inline-size; }
+/* Sin fondos ni marcos al pasar: la fila no se levanta. */
+:global(#portal-content) .workspace .root.glass .pMain .qi:is(:hover, :focus-visible, :has(:focus-visible)) { transform: none; background: transparent; box-shadow: none; }
+:global(#portal-content) .workspace .root.glass .pMain .qi:not(:has(> .qiCheck)) > .qiA { grid-area: 1 / 3 / auto / -1; }
+:global(#portal-content) .workspace .root.glass .pMain .qiA :is(.iconNo, .cmtBtn),
+:global(#portal-content) .workspace .root.glass .pMain .qiA button:not(.iconOk) { color: var(--ink-2); }
+:global(#portal-content) .workspace .root.glass .pMain .qiA .iconNo:hover { color: var(--bad); }
+:global(#portal-content) .workspace .root.glass .pMain .prioL { font-size: 14px; letter-spacing: 0; text-transform: none; }
+:global(#portal-content) .workspace .root.glass .pMain .chip { font-size: 14px; }
+/* Acción principal con marco; lo demás, solo icono. */
+:global(#portal-content) .workspace .root.glass .pMain .qiA .iconOk,
+:global(#portal-content) .workspace .root.glass .pMain .qi > .qiCheck {
+  display: inline-flex;
+  order: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: auto;
+  height: 40px;
+  margin: 0;
+  padding: 0 14px;
+  border: 1px solid rgb(98 86 201 / 0.28);
+  border-radius: var(--glass-radius);
+  background: rgb(255 255 255 / 0.65);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+:global(#portal-content) .workspace .root.glass .pMain :is(.qiA .iconOk, .qiCheck) svg { width: 14px; height: 14px; }
+:global(#portal-content) .workspace .root.glass .pMain :is(.qiA .iconOk, .qiCheck) .btnLabel { display: inline; }
+:global(#portal-content) .workspace .root.glass .pMain :is(.qiA .iconOk, .qi > .qiCheck):hover,
+:global(#portal-content) .workspace .root.glass .pMain .qi > .qiCheck[aria-pressed="true"] {
+  border-color: var(--nora-purple);
+  background: var(--nora-purple-100);
+  color: var(--nora-dash-accent-hover);
+}
+
+/* Cifras de más, prioridades y columna derecha, ya como láminas. */
+:global(#portal-content) .workspace .root.glass .pKpis { gap: 20px; }
+:global(#portal-content) .workspace .root.glass .pKpis .kpi:hover { box-shadow: var(--glass-edge); }
+:global(#portal-content) .workspace .root.glass .pGrid { gap: 20px; }
+:global(#portal-content) .workspace .root.glass .pMain {
+  padding: 20px;
+  border: 1px solid var(--nora-glass-line);
+  border-radius: 12px;
+  background: var(--glass-surface);
+  box-shadow: none;
+}
+:global(#portal-content) .workspace .root.glass .pMain .panelH {
+  align-items: center;
+  margin-bottom: 12px;
+}
+:global(#portal-content) .workspace .root.glass .pMain .panelH h3 { font-size: 20px; line-height: 1.3; }
+:global(#portal-content) .workspace .root.glass .pMain .panelH :global(.ui-btn) {
+  min-height: 36px;
+  padding-inline: 11px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+:global(#portal-content) .workspace .root.glass .pMain .qSum { margin-top: 4px; font-size: 14px; line-height: 1.4; }
+:global(#portal-content) .workspace .root.glass .pSide { gap: 20px; min-width: 0; }
+:global(#portal-content) .workspace .root.glass .pBlock { padding: 20px; }
+.gMainCol { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; min-width: 0; align-content: start; }
+:global(#portal-content) .workspace .root.glass .pMainExtras { margin-top: 0; }
+
+/* Objetivos: anillo con lo que llevas y lo que falta; las demás metas debajo. */
+:global(#portal-content) .workspace .root.glass .gGoal { color: inherit; gap: 16px; text-decoration: none; }
+:global(#portal-content) .workspace .root.glass .gGoal:hover { box-shadow: var(--glass-edge), 0 0 0 1px var(--nora-purple); }
+:global(#portal-content) .workspace .root.glass .gGoal:focus-visible { outline: 2px solid var(--nora-purple); outline-offset: 2px; }
+:global(#portal-content) .workspace .root.glass .gMonths { gap: 16px; }
+.gGoalHead { display: grid; gap: 2px; min-width: 0; }
+.gGoalHead h2 { color: var(--ink); font: 600 20px/1.3 var(--f-body); letter-spacing: 0; }
+.gGoalHead p { color: var(--ink-2); font-size: 14px; }
+.gGoalMain { display: grid; grid-template-columns: 124px minmax(0, 1fr); align-items: center; gap: 20px; }
+.gRing { position: relative; display: grid; place-items: center; width: 124px; height: 124px; }
+.gRing svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.gRing circle { fill: none; stroke: var(--nora-purple-100); stroke-width: 10; }
+.gRing circle + circle { stroke: var(--nora-purple); stroke-linecap: round; }
+.gRing span { display: grid; justify-items: center; }
+.gRing b { color: var(--ink); font: 600 20px/1.2 var(--f-body); font-variant-numeric: tabular-nums; }
+.gRing small { color: var(--ink-2); font-size: 12px; }
+.gGoalFacts { display: grid; gap: 12px; min-width: 0; }
+.gGoalFacts div { display: grid; gap: 2px; }
+.gGoalFacts dt { color: var(--ink-2); font-size: 14px; }
+.gGoalFacts dd { color: var(--ink); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.gGoalOthers { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--nora-glass-line); }
+.gGoalOthers li { display: flex; justify-content: space-between; gap: 12px; color: var(--ink-2); font-size: 14px; }
+.gGoalOthers b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Meses: una barra por mes; el mes en curso va en el morado entero. */
+.gMonthBars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; height: 150px; }
+.gMonthBars li { --tip-at: calc((100% - 24px) * var(--share) + 24px); display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; gap: 8px; min-width: 0; height: 100%; color: var(--ink-2); font-size: 12px; text-align: center; }
+.gMonthBars i { flex: 0 0 auto; height: calc((100% - 24px) * var(--share)); border-radius: 4px 4px 0 0; background: color-mix(in srgb, var(--nora-purple) 30%, white); }
+.gMonthBars li:is([data-current], :hover) i { background: var(--nora-purple); }
+.gMonthBars li[data-current] span { color: var(--ink); font-weight: 600; }
+
+@container pulse (max-width: 980px) {
+  .gStage { grid-template-columns: minmax(0, 1fr); }
+}
+@container pulse (max-width: 680px) {
+  :global(#portal-content) .workspace .root.glass .pMain .qi { grid-template-columns: 32px minmax(0, 1fr) auto; }
+  :global(#portal-content) .workspace .root.glass .pMain .qi > div:not(.qiA) { grid-area: 1 / 2 / auto / -1; }
+  :global(#portal-content) .workspace .root.glass .pMain .qi > .qiA,
+  :global(#portal-content) .workspace .root.glass .pMain .qi:not(:has(> .qiCheck)) > .qiA { grid-area: 2 / 2; justify-content: flex-start; }
+  :global(#portal-content) .workspace .root.glass .pMain .qi > .qiCheck { grid-area: 2 / 3; }
+}
+@media (max-width: 640px) {
+  :global(#portal-content) .workspace .root.glass :is(.gHero, .gLive, .gMk, .pMain) { padding: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :global(#portal-content) .workspace .root.glass .gCard { transition: none; }
+  :global(#portal-content) .workspace .root.glass .gCard:hover { transform: none; }
 }

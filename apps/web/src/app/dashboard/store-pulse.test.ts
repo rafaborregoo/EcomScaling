@@ -9,7 +9,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { storePulse, salesChangePct, canShowProfit } from "./store-pulse";
+import { storePulse, salesChangePct, canShowProfit, financialComparabilityMessage } from "./store-pulse";
+
+test("el aviso financiero distingue una estimación de una fuente sin verificar y propone un siguiente paso", () => {
+  assert.match(financialComparabilityMessage({ status: "estimated", can_use_financial_model: false, reason_codes: ["current_cost_used_for_historical_order"] }), /estimación.*costes históricos/);
+  assert.match(financialComparabilityMessage({ status: "unknown", can_use_financial_model: false, reason_codes: ["shopify_source_stale_or_unavailable"] }), /Actualiza las conexiones/);
+  assert.match(financialComparabilityMessage(), /Faltan datos verificados/);
+});
 
 const base = {
   netSales: 10_000,

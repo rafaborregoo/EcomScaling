@@ -16,7 +16,10 @@ import {
 import { parseStrategicPlanMarkdown } from "./strategic-plan-markdown.js";
 import { isCaminoProposalActionAllowed } from "./camino-proposal-decision.js";
 import { adjustCaminoProposal } from "./camino-proposal-adjustment.js";
+import { endOfMonth, proposalExpired } from "./camino-replan.js";
 import { loadCaminoRoutes } from "./camino-routes.js";
+import { financialMonths, loadPlanEconomics, monthFinancial } from "./camino-economics.js";
+import { loadFxQuotes } from "./fx-rates.js";
 import { caminoReviewCycleStart, canRetryCaminoReview } from "./camino-review-scheduling.js";
 import { occurrenceTitle, recurrenceDates } from "./camino-recurrence.js";
 import { createLogger } from "@e-nora/observability";
@@ -126,7 +129,7 @@ export const OBJECTIVE_CATALOG = [
 
 type ObjectiveMetricKey = (typeof OBJECTIVE_CATALOG)[number]["key"];
 
-function createServiceClient(env: ApiEnv) {
+export function createServiceClient(env: ApiEnv) {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
     auth: { persistSession: false, autoRefreshToken: false },
     realtime: { transport: WebSocket as any },
@@ -152,7 +155,7 @@ async function auditStrategicChange(
   });
 }
 
-function requireMembership(context: AuthContext, organizationId: string) {
+export function requireMembership(context: AuthContext, organizationId: string) {
   return requireOperationalOrganization(context, organizationId);
 }
 
@@ -190,6 +193,22 @@ export async function getCaminoRoutes(env: ApiEnv, context: AuthContext, organiz
   return { ok: true as const, data: { routes: result.routes } };
 }
 
+/** Propuesta de replanificación que sigue siendo válida: ni caducada ni de un Camino que ya cambió. */
+async function loadReplanDraft(service: SupabaseClient, organizationId: string, planId: string) {
+  const { data } = await service
+    .from("agent_outputs")
+    .select("created_at, fingerprint:output->replan_source->>fingerprint")
+    .eq("organization_id", organizationId)
+    .eq("status", "pending_approval")
+    .eq("output->replan_source->>plan_id", planId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!data || proposalExpired(data.created_at as string)) return null;
+  const { data: current } = await service.rpc("camino_plan_fingerprint", { p_plan_id: planId });
+  return current === data.fingerprint ? { generated_at: data.created_at as string } : null;
+}
+
 export async function getStrategicPlan(
   env: ApiEnv,
   authorization: string,
@@ -206,12 +225,14 @@ export async function getStrategicPlan(
   const supabase = createUserScopedClient(env, token);
   const service = createServiceClient(env);
   let storeId: string | null = null;
+  let storeTimezone: string | null = null;
   if (connectionId) {
     const { data: store, error: storeError } = await service.from("shopify_stores")
-      .select("id").eq("organization_id", organizationId).eq("connection_id", connectionId).eq("is_active", true).maybeSingle();
+      .select("id, timezone").eq("organization_id", organizationId).eq("connection_id", connectionId).eq("is_active", true).maybeSingle();
     if (storeError) return { ok: false as const, statusCode: 503, error: "plan_store_scope_failed", detail: storeError.message };
     if (!store) return { ok: false as const, statusCode: 404, error: "store_not_found" };
     storeId = store.id as string;
+    storeTimezone = (store.timezone as string | null) ?? null;
   }
 
   // Ultimo plan no archivado con toda su estructura; las notas internas van
@@ -223,7 +244,7 @@ export async function getStrategicPlan(
   let planQuery = planReader
     .from("strategic_plans")
     .select(
-      "id, name, description, goal, horizon_months, currency_code, status, version, starts_on, completed_on, approved_at, created_at, strategic_plan_phases(id, name, description, rationale, evidence, position, status, activated_at, completed_at, created_by, strategic_plan_milestones(id, name, description, success_criteria, rationale, position, status, target_date, completed_at, completion_evidence, completion_kind, verification_snapshot, created_by, milestone_task_links(task_id, position, owner_role, kind, track, cadence, effort_hours, definition_of_done, rationale, evidence, created_at, tasks(id, title, description, status, priority, due_at, categories, source, created_by, assigned_to))))",
+      "id, name, description, goal, horizon_months, currency_code, display_fx, replaces_plan_id, status, version, starts_on, completed_on, approved_at, created_at, strategic_plan_phases(id, name, description, rationale, evidence, position, status, activated_at, completed_at, created_by, strategic_plan_milestones(id, name, description, success_criteria, rationale, position, status, target_date, deadline_date, measurement_date, completed_at, completion_evidence, completion_kind, verification_snapshot, created_by, milestone_task_links(task_id, position, owner_role, kind, track, cadence, effort_hours, definition_of_done, rationale, evidence, created_at, tasks(id, title, description, status, priority, due_at, categories, source, created_by, assigned_to, ignored_reason, ignored_at))))",
     )
     .eq("organization_id", organizationId);
   planQuery = storeId ? planQuery.eq("store_id", storeId) : planQuery.is("store_id", null);
@@ -411,12 +432,19 @@ export async function getStrategicPlan(
 
   const closures = plan ? await supabase.from("camino_closures").select("id, created_at, snapshot").eq("plan_id", plan.id).eq("organization_id", organizationId).order("created_at", { ascending: false }).limit(5) : { data: [], error: null };
   if (closures.error) return { ok: false as const, statusCode: 503, error: "camino_closures_load_failed", detail: closures.error.message };
+  // Versiones anteriores: replanificar archiva, no borra.
+  let previousQuery = service.from("strategic_plans").select("id, name, version, created_at").eq("organization_id", organizationId).eq("status", "archived");
+  previousQuery = storeId ? previousQuery.eq("store_id", storeId) : previousQuery.is("store_id", null);
+  const previous = await previousQuery.order("version", { ascending: false }).limit(5);
   return {
     ok: true as const,
     data: {
       closures: closures.data ?? [],
       organization_id: organizationId,
       plan: plan ?? null,
+      previous_plans: previous.data ?? [],
+      replan_draft: plan && assertCanManagePlan(context, organizationId).ok ? await loadReplanDraft(service, organizationId, plan.id as string) : null,
+      store_timezone: storeTimezone,
       weekly_reviews: weeklyReviews,
       marketing_assets: marketingAssets,
       marketing_assets_available: marketingAssetsAvailable,
@@ -618,7 +646,7 @@ async function attachCreatorOrigin(
   }
 }
 
-type PlanInput = {
+export type PlanInput = {
   /** Salida de IA que origina el plan: se marca publicada en la misma transaccion. */
   outputId?: string | null;
   storeId?: string | null;
@@ -639,6 +667,11 @@ type PlanInput = {
       successCriteria?: string | null;
       rationale?: string | null;
       targetDate?: string | null;
+      deadlineDate?: string | null;
+      measurementDate?: string | null;
+      /** Replanificar: el hito vigente que este continúa. */
+      sourceMilestoneId?: string | null;
+      changeReason?: string | null;
       // Metrica del hito elegida al crear el camino (builder a mano): se
       // guarda como objetivo ligado al hito, igual que desde el panel.
       objective?: { metricKey?: string; targetValue?: number } | null;
@@ -655,6 +688,10 @@ type PlanInput = {
         definitionOfDone?: string | null;
         rationale?: string | null;
         evidence?: unknown[];
+        /** Replanificar: la tarea vigente que esta continúa, con su historia y responsable. */
+        sourceTaskId?: string | null;
+        changeReason?: string | null;
+        reassign?: boolean;
       }>;
     }>;
   }>;
@@ -664,7 +701,7 @@ type PlanInput = {
  * Quien recibe las tareas del consultor al crear un camino: su consultor
  * asignado y, si quien crea es consultor o admin sin asignacion, el mismo.
  */
-async function resolveTaskAssignee(
+export async function resolveTaskAssignee(
   supabase: SupabaseClient,
   context: AuthContext,
   organizationId: string,
@@ -694,6 +731,82 @@ export function normalizeCurrencyCode(value: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+/** El arbol que escriben create_strategic_plan_tree y camino_apply_replan. */
+export function buildPlanTree(
+  input: PlanInput,
+  assignTo: (owner: unknown) => string | null,
+  objectiveCatalogKeys: Set<string>,
+) {
+  return {
+    name: input.name!.trim().slice(0, 255),
+    description: input.description ?? null,
+    goal: input.goal ?? null,
+    horizon_months: input.horizonMonths ?? null,
+    currency_code: normalizeCurrencyCode(input.currencyCode),
+    phases: (input.phases ?? []).map((phase) => ({
+      name: phase.name!.trim().slice(0, 255),
+      description: phase.description ?? null,
+      rationale: phase.rationale ?? null,
+      evidence: phase.evidence ?? [],
+      milestones: (phase.milestones ?? [])
+        .filter((milestone) => milestone.name && milestone.name.trim().length > 0)
+        .map((milestone) => {
+          const objective = milestone.objective;
+          const validObjective =
+            objective?.metricKey &&
+            objectiveCatalogKeys.has(objective.metricKey) &&
+            typeof objective.targetValue === "number" &&
+            Number.isFinite(objective.targetValue) &&
+            objective.targetValue >= 0
+              ? { metric_key: objective.metricKey, target_value: objective.targetValue }
+              : null;
+          return {
+            name: milestone.name!.trim().slice(0, 255),
+            description: milestone.description ?? null,
+            success_criteria: milestone.successCriteria ?? null,
+            rationale: milestone.rationale ?? null,
+            target_date: milestone.targetDate ?? null,
+            deadline_date: milestone.deadlineDate ?? null,
+            measurement_date: milestone.measurementDate ?? null,
+            source_milestone_id: milestone.sourceMilestoneId ?? null,
+            objective: validObjective,
+            tasks: (milestone.tasks ?? [])
+              .filter((task) => task.title && task.title.trim().length > 0)
+              // Una rutina (semanal, quincenal...) se convierte en una tarea por vez.
+              // La primera vuelta de una tarea que continúa otra es esa misma tarea.
+              .flatMap((task) => {
+                const cadence = normalizeCadence(task.cadence);
+                const dates = cadence && cadence !== "una_vez" ? recurrenceDates(task.dueAt, cadence, milestone.targetDate) : [];
+                return dates.length > 1
+                  ? dates.map((date, index) => ({ ...task, sourceTaskId: index === 0 ? (task.sourceTaskId ?? null) : null, title: occurrenceTitle(task.title!.trim(), index, dates.length), dueAt: date }))
+                  : [task];
+              })
+              .map((task) => ({
+                title: task.title!.trim().slice(0, 255),
+                description: task.description ?? null,
+                priority: MILESTONE_TASK_PRIORITIES.includes(task.priority ?? "")
+                  ? task.priority
+                  : "medium",
+                due_at: task.dueAt ?? null,
+                // Sin `assigned_to` una tarea conservada mantiene su responsable.
+                ...(task.sourceTaskId && !task.reassign ? {} : { assigned_to: assignTo(task.owner) }),
+                source_task_id: task.sourceTaskId ?? null,
+                category: categoryForKind(task.kind),
+                owner: normalizeOwner(task.owner),
+                kind: normalizeKind(task.kind),
+                track: normalizeTrack(task.track),
+                cadence: normalizeCadence(task.cadence),
+                effort_hours: typeof task.effortHours === "number" ? task.effortHours : null,
+                definition_of_done: task.definitionOfDone ?? null,
+                rationale: task.rationale ?? null,
+                evidence: task.evidence ?? [],
+              })),
+          };
+        }),
+    })),
+  };
 }
 
 export async function createStrategicPlan(
@@ -772,68 +885,7 @@ export async function createStrategicPlan(
   // Todo el arbol viaja en un solo JSON y se escribe en UNA transaccion
   // (create_strategic_plan_tree). Antes eran ~150 inserts sueltos con un
   // rollback manual que no corria si el proceso caia a mitad.
-  const tree = {
-    name: input.name.trim().slice(0, 255),
-    description: input.description ?? null,
-    goal: input.goal ?? null,
-    horizon_months: input.horizonMonths ?? null,
-    currency_code: normalizeCurrencyCode(input.currencyCode),
-    phases: phases.map((phase) => ({
-      name: phase.name!.trim().slice(0, 255),
-      description: phase.description ?? null,
-      rationale: phase.rationale ?? null,
-      evidence: phase.evidence ?? [],
-      milestones: (phase.milestones ?? [])
-        .filter((milestone) => milestone.name && milestone.name.trim().length > 0)
-        .map((milestone) => {
-          const objective = milestone.objective;
-          const validObjective =
-            objective?.metricKey &&
-            objectiveCatalogKeys.has(objective.metricKey) &&
-            typeof objective.targetValue === "number" &&
-            Number.isFinite(objective.targetValue) &&
-            objective.targetValue >= 0
-              ? { metric_key: objective.metricKey, target_value: objective.targetValue }
-              : null;
-          return {
-            name: milestone.name!.trim().slice(0, 255),
-            description: milestone.description ?? null,
-            success_criteria: milestone.successCriteria ?? null,
-            rationale: milestone.rationale ?? null,
-            target_date: milestone.targetDate ?? null,
-            objective: validObjective,
-            tasks: (milestone.tasks ?? [])
-              .filter((task) => task.title && task.title.trim().length > 0)
-              // Una rutina (semanal, quincenal...) se convierte en una tarea por vez.
-              .flatMap((task) => {
-                const cadence = normalizeCadence(task.cadence);
-                const dates = cadence && cadence !== "una_vez" ? recurrenceDates(task.dueAt, cadence, milestone.targetDate) : [];
-                return dates.length > 1
-                  ? dates.map((date, index) => ({ ...task, title: occurrenceTitle(task.title!.trim(), index, dates.length), dueAt: date }))
-                  : [task];
-              })
-              .map((task) => ({
-                title: task.title!.trim().slice(0, 255),
-                description: task.description ?? null,
-                priority: MILESTONE_TASK_PRIORITIES.includes(task.priority ?? "")
-                  ? task.priority
-                  : "medium",
-                due_at: task.dueAt ?? null,
-                assigned_to: assignTo(task.owner),
-                category: categoryForKind(task.kind),
-                owner: normalizeOwner(task.owner),
-                kind: normalizeKind(task.kind),
-                track: normalizeTrack(task.track),
-                cadence: normalizeCadence(task.cadence),
-                effort_hours: typeof task.effortHours === "number" ? task.effortHours : null,
-                definition_of_done: task.definitionOfDone ?? null,
-                rationale: task.rationale ?? null,
-                evidence: task.evidence ?? [],
-              })),
-          };
-        }),
-    })),
-  };
+  const tree = buildPlanTree({ ...input, phases }, assignTo, objectiveCatalogKeys);
 
   const { data: planId, error: planError } = await supabase.rpc("create_strategic_plan_tree", {
     p_organization_id: organizationId,
@@ -1025,7 +1077,38 @@ export async function activateStrategicPlan(
   return { ok: true as const, data: { id: planId, status: "active" } };
 }
 
-/** Moneda en la que se muestran las cifras del camino. No convierte importes. */
+/** Tipo BCE para enseñar el camino en otra moneda. Los importes guardados no se tocan. */
+async function planCurrencyQuote(supabase: SupabaseClient, organizationId: string, planId: string, to: string) {
+  const { data: plan, error } = await supabase.from("strategic_plans").select("id, currency_code, goal").eq("id", planId).eq("organization_id", organizationId).maybeSingle();
+  if (error) return { ok: false as const, statusCode: 500, error: "plan_load_failed", detail: error.message };
+  if (!plan) return { ok: false as const, statusCode: 404, error: "plan_not_found" };
+  const goal = plan.goal as { currency_code?: unknown } | null;
+  const from = normalizeCurrencyCode(plan.currency_code) ?? normalizeCurrencyCode(goal?.currency_code);
+  if (!from) return { ok: false as const, statusCode: 409, error: "plan_currency_unknown", message: "Este camino no tiene moneda de origen." };
+  if (from === to) return { ok: true as const, from, quote: null };
+  const [quote] = await loadFxQuotes(supabase, [from], to);
+  if (!quote) {
+    return { ok: false as const, statusCode: 409, error: "fx_rate_unavailable", message: `El BCE no publica un tipo de ${from} a ${to}. El camino sigue en ${from}.` };
+  }
+  return { ok: true as const, from, quote };
+}
+
+export async function quotePlanCurrency(env: ApiEnv, context: AuthContext, organizationId: string, planId: string, value: unknown) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) return authz;
+  const to = normalizeCurrencyCode(value);
+  if (!to) return { ok: false as const, statusCode: 400, error: "invalid_currency_code" };
+  const result = await planCurrencyQuote(createServiceClient(env), organizationId, planId, to);
+  if (result.ok === false) return result;
+  return { ok: true as const, data: { from: result.from, to, quote: result.quote } };
+}
+
+/**
+ * Moneda en la que se muestra el camino. Convierte con el tipo BCE del día y lo
+ * fija en `display_fx`: `currency_code` y las cifras guardadas no cambian, porque
+ * el panel y los agentes las leen y se comparan con ventas en moneda de tienda.
+ * Volver a la moneda de origen quita la conversión.
+ */
 export async function updatePlanCurrency(
   env: ApiEnv,
   context: AuthContext,
@@ -1043,9 +1126,12 @@ export async function updatePlanCurrency(
   }
 
   const supabase = createServiceClient(env);
+  const conversion = await planCurrencyQuote(supabase, organizationId, planId, currencyCode);
+  if (conversion.ok === false) return conversion;
+  const displayFx = conversion.quote;
   const { data, error } = await supabase
     .from("strategic_plans")
-    .update({ currency_code: currencyCode })
+    .update({ display_fx: displayFx })
     .eq("id", planId)
     .eq("organization_id", organizationId)
     .select("id")
@@ -1058,9 +1144,22 @@ export async function updatePlanCurrency(
   }
 
   await auditStrategicChange(supabase, organizationId, context, "strategic_plan.set_currency", "strategic_plan", planId, {
-    currency_code: currencyCode,
+    display_currency: currencyCode,
+    display_fx: displayFx,
   });
-  return { ok: true as const, data: { id: planId, currency_code: currencyCode } };
+  return { ok: true as const, data: { id: planId, currency_code: conversion.from, display_fx: displayFx } };
+}
+
+/** Margen mes a mes, costes incluidos y solidez de los datos de la meta. */
+export async function getPlanEconomics(env: ApiEnv, context: AuthContext, organizationId: string, planId: string) {
+  const access = requireMembership(context, organizationId);
+  if (access.ok === false) return access;
+  const service = createServiceClient(env);
+  const { data: plan, error } = await service.from("strategic_plans").select("id, store_id, goal").eq("id", planId).eq("organization_id", organizationId).maybeSingle();
+  if (error) return { ok: false as const, statusCode: 503, error: "plan_load_failed", detail: error.message };
+  if (!plan) return { ok: false as const, statusCode: 404, error: "plan_not_found" };
+  const goal = plan.goal as { target_date?: string } | null;
+  return { ok: true as const, data: await loadPlanEconomics(service, organizationId, (plan.store_id as string | null) ?? null, goal?.target_date ?? null) };
 }
 
 type StrategicPlanUpdateInput = { name?: string | undefined; description?: string | null | undefined };
@@ -1101,6 +1200,14 @@ export async function deleteStrategicPlan(env: ApiEnv, context: AuthContext, org
     .select("id, name, status").eq("id", planId).eq("organization_id", organizationId).maybeSingle();
   if (lookupError) return { ok: false as const, statusCode: 500, error: "plan_lookup_failed", detail: lookupError.message };
   if (!plan) return { ok: false as const, statusCode: 404, error: "plan_not_found" };
+  // Borrar es en cascada: un camino con trabajo hecho o ya cerrado se archiva, no se borra.
+  const { count: doneTasks, error: doneError } = await supabase.from("milestone_task_links")
+    .select("task_id, tasks!inner(status), strategic_plan_milestones!inner(strategic_plan_phases!inner(plan_id))", { count: "exact", head: true })
+    .eq("tasks.status", "completed").eq("strategic_plan_milestones.strategic_plan_phases.plan_id", plan.id);
+  if (doneError) return { ok: false as const, statusCode: 500, error: "plan_lookup_failed", detail: doneError.message };
+  if (["archived", "completed"].includes(plan.status as string) || (doneTasks ?? 0) > 0) {
+    return { ok: false as const, statusCode: 409, error: "plan_has_history", message: "Este camino tiene historial. Archívalo: no se puede borrar." };
+  }
   await auditStrategicChange(supabase, organizationId, context, "strategic_plan.delete", "strategic_plan", plan.id, { name: plan.name, status: plan.status });
   const { data, error } = await supabase.from("strategic_plans").delete()
     .eq("id", planId).eq("organization_id", organizationId).select("id").maybeSingle();
@@ -1223,7 +1330,7 @@ export async function updateMilestoneStatus(
   let verification: Record<string, unknown> | null = null;
   if (statusInput === "completed") {
     const { data: milestone, error } = await supabase.from("strategic_plan_milestones")
-      .select("id, description, success_criteria, strategic_plan_phases!inner(strategic_plans!inner(store_id))")
+      .select("id, description, success_criteria, milestone_task_links(tasks(id, title, status)), strategic_plan_phases!inner(strategic_plans!inner(store_id))")
       .eq("id", milestoneId).eq("organization_id", organizationId).maybeSingle();
     if (error || !milestone) return { ok: false as const, statusCode: 404, error: "milestone_not_found" };
     const rel = milestone.strategic_plan_phases as unknown as { strategic_plans: { store_id: string | null } };
@@ -1237,7 +1344,10 @@ export async function updateMilestoneStatus(
     if (!authorization) return { ok: false as const, statusCode: 400, error: "milestone_measurement_authorization_required" };
     const result = await getObjectives(env, authorization, context, organizationId, storeId, connectionId);
     if (!result.ok) return result;
-    const checks = result.data.objectives.filter((o) => o.milestone_id === milestoneId).map((o) => ({
+    // Los indicadores creados desde la pantalla no llevan tienda: también cuentan al cerrar el hito.
+    const general = storeId ? await getObjectives(env, authorization, context, organizationId, null, connectionId) : null;
+    if (general && !general.ok) return general;
+    const checks = [...result.data.objectives, ...(general?.data.objectives ?? [])].filter((o) => o.milestone_id === milestoneId).map((o) => ({
       id: o.id, metric_key: o.metric_key, period: o.period, basis: o.measurement_basis,
       label: o.label, target: o.target_value, actual: o.actual_value, reached: o.status === "cumplido", measurement: o.measurement,
     }));
@@ -1245,7 +1355,10 @@ export async function updateMilestoneStatus(
       ok: false as const, statusCode: 409, error: "milestone_metric_not_met",
       message: "Hay objetivos sin alcanzar o sin medición fiable. Revisa el resultado o registra un cierre por excepción con su motivo.",
     };
-    verification = { kind: completionMode === "exception" ? "exception" : checks.length ? "metric" : "human", checks,
+    const links = milestone.milestone_task_links as unknown as Array<{ tasks: { id: string; title: string; status: string } | null }>;
+    // Una excepción puede cerrar con tareas abiertas: quedan dichas en el cierre.
+    const openTasks = links.flatMap((link) => (link.tasks && ["pending", "in_progress", "proposed"].includes(link.tasks.status) ? [{ id: link.tasks.id, title: link.tasks.title }] : []));
+    verification = { kind: completionMode === "exception" ? "exception" : checks.length ? "metric" : "human", checks, open_tasks: openTasks,
       criterion: milestone.success_criteria || milestone.description, measured_at: new Date().toISOString() };
   }
   const { data, error } = await supabase.rpc("camino_transition_milestone", {
@@ -1634,6 +1747,9 @@ type MilestoneUpdateInput = {
   name?: string | undefined;
   description?: string | null | undefined;
   targetDate?: string | null | undefined;
+  /** Vacías equivalen a la fecha objetivo. */
+  deadlineDate?: string | null | undefined;
+  measurementDate?: string | null | undefined;
   /** «Cómo sabremos que está hecho» y «Por qué ahora»: los escribe A19 y el consultor los corrige. */
   successCriteria?: string | null | undefined;
   rationale?: string | null | undefined;
@@ -1671,6 +1787,18 @@ export async function updateMilestone(
 
   if (input.targetDate !== undefined) {
     patch.target_date = input.targetDate;
+  }
+
+  for (const [key, column] of [["deadlineDate", "deadline_date"], ["measurementDate", "measurement_date"]] as const) {
+    const value = input[key];
+    if (value === undefined) continue;
+    if (value !== null && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return { ok: false as const, statusCode: 400, error: "invalid_milestone_date" };
+    }
+    patch[column] = value;
+  }
+  if (typeof patch.target_date === "string" && typeof patch.deadline_date === "string" && patch.deadline_date < patch.target_date) {
+    return { ok: false as const, statusCode: 400, error: "milestone_deadline_before_target", message: "La fecha límite no puede ser anterior a la fecha objetivo." };
   }
 
   for (const [key, column] of [["successCriteria", "success_criteria"], ["rationale", "rationale"]] as const) {
@@ -2013,7 +2141,7 @@ function builtinCatalogEntries(): ObjectiveCatalogEntry[] {
  * "de cartera" de los consultores asignados sin depender de la RLS del
  * cliente.
  */
-async function resolveObjectiveCatalog(
+export async function resolveObjectiveCatalog(
   env: ApiEnv,
   organizationId: string,
 ): Promise<ObjectiveCatalogEntry[]> {
@@ -2099,7 +2227,8 @@ export async function getObjectives(
     .eq("organization_id", organizationId)
     .lte("valid_from", today)
     .or(`valid_until.is.null,valid_until.gte.${today}`)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
   if (storeId) targetsQuery = targetsQuery.eq("store_id", storeId);
   else targetsQuery = targetsQuery.is("store_id", null);
   const { data: targets, error } = await targetsQuery;
@@ -2494,6 +2623,63 @@ export async function setObjectiveActual(
     { value },
   );
 
+  return { ok: true as const, data: { id: data.id } };
+}
+
+const MONTHLY_VALUE: Record<string, "revenue" | "profit" | "margin_pct" | "orders"> = {
+  net_revenue_ex_tax: "revenue",
+  net_profit: "profit",
+  net_margin_pct: "margin_pct",
+  orders_count: "orders",
+};
+
+/**
+ * Histórico de un indicador: los cambios de su objetivo y, si la métrica tiene
+ * serie mensual, lo medido. Se busca por métrica y tienda, no por fila: quitar
+ * un objetivo borra la fila, pero ni sus cambios ni las mediciones se pierden.
+ */
+export async function getObjectiveHistory(env: ApiEnv, context: AuthContext, organizationId: string, targetId: string) {
+  const access = requireMembership(context, organizationId);
+  if (access.ok === false) return access;
+  const service = createServiceClient(env);
+  const { data: target, error } = await service.from("organization_metric_targets").select("id, metric_key, store_id").eq("id", targetId).eq("organization_id", organizationId).maybeSingle();
+  if (error) return { ok: false as const, statusCode: 503, error: "objective_load_failed", detail: error.message };
+  if (!target) return { ok: false as const, statusCode: 404, error: "objective_not_found" };
+  const storeId = (target.store_id as string | null) ?? null;
+  let changes = service.from("camino_objective_changes").select("id, action, previous_value, new_value, period, reason, actor_role, created_at")
+    .eq("organization_id", organizationId).eq("metric_key", target.metric_key as string).eq("scope", "objective");
+  changes = storeId ? changes.eq("store_id", storeId) : changes.is("store_id", null);
+  const { data: rows, error: changesError } = await changes.order("created_at", { ascending: false }).limit(20);
+  if (changesError) return { ok: false as const, statusCode: 503, error: "objective_history_failed", detail: changesError.message };
+  const field = MONTHLY_VALUE[target.metric_key as string];
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const months = field
+    ? (await financialMonths(service, organizationId, storeId, 6)).map((entry) => {
+        const month = monthFinancial(entry, true, currentMonth);
+        return { month: month.month, value: month[field], in_progress: month.in_progress };
+      })
+    : [];
+  return { ok: true as const, data: { changes: rows ?? [], months } };
+}
+
+/** Liga un indicador a un hito (su cierre lo comprobará) o lo deja para todo el plan. */
+export async function linkObjectiveToMilestone(env: LoadedApiEnv, context: AuthContext, organizationId: string, targetId: string, milestoneId: unknown) {
+  const authz = assertCanManagePlan(context, organizationId);
+  if (authz.ok === false) return authz;
+  if (milestoneId !== null && typeof milestoneId !== "string") return { ok: false as const, statusCode: 400, error: "invalid_milestone" };
+  const service = createServiceClient(env);
+  if (milestoneId) {
+    const { data: milestone } = await service.from("strategic_plan_milestones").select("id").eq("id", milestoneId).eq("organization_id", organizationId).maybeSingle();
+    if (!milestone) return { ok: false as const, statusCode: 400, error: "invalid_milestone" };
+  }
+  const { data, error } = await service.from("organization_metric_targets").update({ milestone_id: milestoneId || null }).eq("id", targetId).eq("organization_id", organizationId).select("id").maybeSingle();
+  if (error?.code === "23505") {
+    return { ok: false as const, statusCode: 409, error: "objective_already_linked", message: "Ese hito ya tiene un objetivo de esta métrica." };
+  }
+  if (error) return { ok: false as const, statusCode: 500, error: "objective_link_failed", detail: error.message };
+  if (!data) return { ok: false as const, statusCode: 404, error: "objective_not_found" };
+  await auditStrategicChange(service, organizationId, context, "strategic_plan.link_objective", "organization_metric_target", data.id, { milestone_id: milestoneId || null });
+  await refreshCostDependentCaches(env, organizationId);
   return { ok: true as const, data: { id: data.id } };
 }
 
@@ -3152,23 +3338,27 @@ export async function createMilestoneTask(
  * Dos decisiones que viven aqui:
  *  - El modelo devuelve `target_offset_days` (dias desde hoy) y no fechas
  *    absolutas, porque no tiene reloj fiable. El ancla es el momento de
- *    ACEPTAR, no el de generar: entre proponer y aceptar puede pasar una
- *    semana y el camino no debe nacer ya tarde.
+ *    GENERAR: el modelo razona sobre ese dia y sus fechas comerciales no se
+ *    mueven al aceptar. Por eso una propuesta caduca (`proposalExpired`).
  *  - `success_metric` se pliega dentro de la descripcion del hito. Es lo que
  *    hace verificable "completar" y `strategic_plan_milestones` no tiene
  *    columna propia para el; perderlo dejaria hitos que se marcan a ojo.
  */
 export function caminoProposalToPlanInput(
   proposal: CaminoPlanOutput,
-  acceptedAtMs: number,
+  anchorMs: number,
   storeId?: string | null,
   baselineWindowDays?: number | null,
   baselineObservedAt?: string | null,
 ): PlanInput {
   const toTargetDate = (offsetDays: number) =>
-    new Date(acceptedAtMs + offsetDays * 24 * 60 * 60 * 1000)
+    new Date(anchorMs + offsetDays * 24 * 60 * 60 * 1000)
       .toISOString()
       .slice(0, 10);
+  const horizonEnd = proposal.horizon_months ? toTargetDate(caminoCalendarHorizonDays(new Date(anchorMs), proposal.horizon_months)) : null;
+  // Con meses reales, la fecha de la meta es la de su mes: si no, 75.000 de noviembre vencen en diciembre.
+  const goalMonth = proposal.goal?.monthly_targets?.find((month) => month.period && month.target_value === proposal.goal?.target);
+  const goalMonthEnd = goalMonth?.period ? endOfMonth(goalMonth.period) : null;
 
   return {
     name: proposal.plan_name,
@@ -3179,8 +3369,8 @@ export function caminoProposalToPlanInput(
         ? { baseline_window_days: baselineWindowDays }
         : {}),
       ...(baselineObservedAt ? { baseline_observed_at: baselineObservedAt } : {}),
-      target_date: toTargetDate(proposal.goal.target_offset_days),
-      ...(proposal.horizon_months ? { horizon_end_date: toTargetDate(caminoCalendarHorizonDays(new Date(acceptedAtMs), proposal.horizon_months)) } : {}),
+      target_date: goalMonthEnd ? (horizonEnd && horizonEnd < goalMonthEnd ? horizonEnd : goalMonthEnd) : toTargetDate(proposal.goal.target_offset_days),
+      ...(horizonEnd ? { horizon_end_date: horizonEnd } : {}),
     } : proposal.goal,
     storeId: storeId ?? null,
     ...(proposal.horizon_months === undefined ? {} : { horizonMonths: proposal.horizon_months }),
@@ -3197,6 +3387,8 @@ export function caminoProposalToPlanInput(
         successCriteria: milestone.success_metric,
         rationale: milestone.rationale || null,
         targetDate: toTargetDate(milestone.target_offset_days),
+        sourceMilestoneId: milestone.source_milestone_id ?? null,
+        changeReason: milestone.change_reason ?? null,
         tasks: milestone.tasks.map((task) => ({
           title: task.title,
           description: task.description,
@@ -3209,6 +3401,8 @@ export function caminoProposalToPlanInput(
           effortHours: task.effort_hours,
           definitionOfDone: task.definition_of_done || null,
           evidence: task.evidence,
+          sourceTaskId: task.source_task_id ?? null,
+          changeReason: task.change_reason ?? null,
         })),
       })),
     })),
@@ -3293,16 +3487,16 @@ export async function rejectCaminoProposalOutput(
  * segundo gesto deliberado, igual que un plan escrito a mano.
  *
  * El modelo devuelve `target_offset_days` (dias desde hoy) en vez de fechas
- * absolutas porque no tiene reloj fiable; la fecha se calcula aqui, con el
- * ancla puesta en el momento de aceptar el plan, no en el de generarlo: entre
- * generar y aceptar puede pasar una semana y el camino no debe nacer ya tarde.
+ * absolutas porque no tiene reloj fiable; la fecha se calcula aqui, anclada al
+ * momento de generar. Reanclar al aceptar movia Black Friday y cambiaba de mes
+ * las metas; una propuesta vieja caduca en vez de desplazarse.
  */
 export async function createStrategicPlanFromProposal(
   env: ApiEnv,
   context: AuthContext,
   organizationId: string,
   outputId: string,
-  adjustments: { horizonMonths?: unknown; goalTarget?: unknown; currencyCode?: unknown; replacePlanId?: unknown } = {},
+  adjustments: { horizonMonths?: unknown; goalTarget?: unknown; currencyCode?: unknown } = {},
 ) {
   const authz = assertCanManagePlan(context, organizationId);
   if (authz.ok === false) {
@@ -3376,6 +3570,23 @@ export async function createStrategicPlanFromProposal(
       detail: parsed.error.message,
     };
   }
+  if (parsed.data.replan_source) {
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "plan_proposal_is_replan",
+      message: "Esta propuesta es una replanificación: se confirma desde Replanificar.",
+    };
+  }
+  if (proposalExpired(run?.started_at)) {
+    return {
+      ok: false as const,
+      statusCode: 409,
+      error: "plan_proposal_expired",
+      message: "Esta propuesta ha caducado: sus fechas y metas ya no valen. Genera otra.",
+    };
+  }
+  const anchor = new Date(run?.started_at as string);
 
   let reviewedProposal = parsed.data;
   if (adjustments.horizonMonths !== undefined || Object.prototype.hasOwnProperty.call(adjustments, "goalTarget")) {
@@ -3392,7 +3603,7 @@ export async function createStrategicPlanFromProposal(
     if (!parsed.data.goal && goalTarget !== null) {
       return { ok: false as const, statusCode: 400, error: "camino_proposal_has_no_goal" };
     }
-    reviewedProposal = adjustCaminoProposal(parsed.data, horizonMonths!, goalTarget as number | null);
+    reviewedProposal = adjustCaminoProposal(parsed.data, horizonMonths!, goalTarget as number | null, anchor);
     if (reviewedProposal.phases.length === 0) {
       return {
         ok: false as const,
@@ -3407,58 +3618,19 @@ export async function createStrategicPlanFromProposal(
     }
   }
 
-  // Replanificar: el camino vigente se archiva justo antes de crear el nuevo, y
-  // se restaura si la creacion falla, para no dejar la tienda sin camino.
-  let replaced: { id: string; status: string } | null = null;
-  if (typeof adjustments.replacePlanId === "string" && adjustments.replacePlanId) {
-    const { data: current, error: currentError } = await supabase
-      .from("strategic_plans")
-      .select("id, status, store_id")
-      .eq("id", adjustments.replacePlanId)
-      .eq("organization_id", organizationId)
-      .maybeSingle();
-    if (currentError) {
-      return { ok: false as const, statusCode: 500, error: "plan_replace_lookup_failed", detail: currentError.message };
-    }
-    if (!current) return { ok: false as const, statusCode: 404, error: "plan_not_found" };
-    if ((current.store_id ?? null) !== (run?.store_id ?? null)) {
-      return {
-        ok: false as const,
-        statusCode: 409,
-        error: "plan_replace_scope_mismatch",
-        message: "El camino que quieres reemplazar es de otra tienda que esta propuesta.",
-      };
-    }
-    const archived = await archiveStrategicPlan(env, context, organizationId, current.id);
-    if (archived.ok === false) return archived;
-    replaced = { id: current.id as string, status: current.status as string };
-  }
-
   const created = await createStrategicPlan(
     env,
     context,
     organizationId,
     {
-      ...caminoProposalToPlanInput(reviewedProposal, Date.now(), run?.store_id ?? null, run?.lookback_days, run?.started_at),
+      ...caminoProposalToPlanInput(reviewedProposal, anchor.getTime(), run?.store_id ?? null, run?.lookback_days, run?.started_at),
       // La propuesta se publica dentro de la misma transaccion que crea el plan.
       outputId,
       currencyCode: normalizeCurrencyCode(adjustments.currencyCode) ?? reviewedProposal.goal?.currency_code ?? null,
     },
   );
 
-  if (created.ok === false) {
-    if (replaced) {
-      const { error: restoreError } = await supabase
-        .from("strategic_plans")
-        .update({ status: replaced.status })
-        .eq("id", replaced.id)
-        .eq("organization_id", organizationId);
-      if (restoreError) {
-        logger.error("camino_replace_restore_failed", { organization_id: organizationId, plan_id: replaced.id, error: restoreError.message });
-      }
-    }
-    return created;
-  }
+  if (created.ok === false) return created;
 
   const { error: approvalError } = await supabase.from("agent_approvals").insert({
     output_id: outputId,

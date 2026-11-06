@@ -52,6 +52,21 @@
     "shared_workspace_guards_passed": 19,
     "production_deployed": false,
     "live_meta_success_verified": false,
-    "full_product_end_to_end_verified": false
+    "full_product_end_to_end_verified": false,
+    "last_reviewed_on": "2026-11-02",
+    "internal_packages_build_passed": true,
+    "api_typescript_emission_passed": true,
+    "worker_typecheck_passed": true,
+    "incorporated_into_commit": "aeaba307cbca90b3d9bf689f0549db189c6017b6",
+    "observed_main_head": "4b70afc162f60bc3dd5b7f2b90be2bc0dff710f3",
+    "patch_usage": "Historical delta against base_commit; already incorporated into observed_main_head. Do not reapply to current main.",
+    "production_delta_files": 241,
+    "production_api_worker_sha": "04c26ec1dd1a2dd40e428ed2d5f43d628cc30a9d",
+    "production_engine": "a24-measurement-v2",
+    "production_rollback_images": {
+      "api": "sha256:df7f7ae4b79d7da7945a3708a9a32512d65f4ca6f0919c1deefb1080b5f4f3ec",
+      "worker": "sha256:920d7713fc4bc16750029348d0d089cf89b849e549ef8ff13752333e5345dac6"
+    },
+    "shared_workspace_guards_verified_on": "2026-11-02"
   }
 }

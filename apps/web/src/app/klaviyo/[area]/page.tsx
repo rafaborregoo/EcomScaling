@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
@@ -30,7 +31,7 @@ function count(value: number | undefined) {
   return Math.round(value ?? 0).toLocaleString("es-ES");
 }
 
-function CampaignsView({ campaigns, connected, currency }: { campaigns: KCampaign[]; connected: boolean; currency: string }) {
+function CampaignsView({ campaigns, connected, currency, campaignHref }: { campaigns: KCampaign[]; connected: boolean; currency: string; campaignHref: (id: string) => string }) {
   return (
     <div className="grid gap-5">
       <header className="grid gap-1">
@@ -51,7 +52,7 @@ function CampaignsView({ campaigns, connected, currency }: { campaigns: KCampaig
               rows={campaigns}
               searchPlaceholder="Buscar campaña o asunto…"
               columns={[
-                { key: "name", label: "Campaña", value: (campaign) => `${campaign.name} ${campaign.subject ?? ""}`, render: (campaign) => <><b>{campaign.name}</b><span className="block text-sm text-muted">{campaign.subject || "Sin asunto"}</span></> },
+                { key: "name", label: "Campaña", value: (campaign) => `${campaign.name} ${campaign.subject ?? ""}`, render: (campaign) => <><Link className="font-semibold underline underline-offset-4" href={campaignHref(campaign.id)}>{campaign.name}</Link><span className="block text-sm text-muted">{campaign.subject || "Sin asunto"}</span><Link className="text-sm underline underline-offset-4" href={campaignHref(campaign.id)}>Ver email, resultados y valoración</Link></> },
                 { key: "status", label: "Estado", render: (campaign) => <Badge tone={campaign.status?.toLowerCase().includes("sent") ? "success" : "neutral"}>{campaign.status ? (STATUS_LABEL[campaign.status.toLowerCase()] ?? campaign.status) : "Sin estado"}</Badge> },
                 { key: "channel", label: "Canal", render: (campaign) => (campaign.channel ? (CHANNEL_LABEL[campaign.channel.toLowerCase()] ?? campaign.channel) : "—") },
                 { key: "recipients", label: "Destinatarios", align: "end", value: (campaign) => campaign.stats?.recipients, render: (campaign) => count(campaign.stats?.recipients) },
@@ -93,8 +94,8 @@ function KlaviyoArea({ bootstrap }: { bootstrap: BootstrapResponse }) {
     <CardContent><ErrorBlock>{workspaceQuery.error}</ErrorBlock></CardContent>
   </Card>;
 
-  if (area === "campanas") return <CampaignsView campaigns={workspace?.campaigns ?? []} connected={Boolean(workspace?.connected)} currency={workspace?.account?.currency || "EUR"} />;
-  if (area === "flows") return <FlowsView organizationId={organizationId} workspace={workspace} drafts={drafts.drafts} basePath="/klaviyo/flows" onOpenPiece={() => openMarketing("/marketing?section=contenido")} onNewPiece={() => openMarketing("/marketing?section=crear")} />;
+  if (area === "campanas") return <CampaignsView campaigns={workspace?.campaigns ?? []} connected={Boolean(workspace?.connected)} currency={workspace?.account?.currency || "EUR"} campaignHref={(id) => withPortalRouteContext(`/klaviyo/campanas/${id}`, organizationId, connectionId)} />;
+  if (area === "flows") return <FlowsView organizationId={organizationId} workspace={workspace} drafts={drafts.drafts} basePath="/klaviyo/flows" isConsultant={["platform_admin", "consultant"].includes(bootstrap.profile.platform_role)} onOpenPiece={() => openMarketing("/marketing?section=contenido")} onNewPiece={() => openMarketing("/marketing?section=crear")} />;
   if (area === "plantillas") return <TemplatesView organizationId={organizationId} workspace={workspace} drafts={drafts.drafts} onOpenDraft={() => openMarketing("/marketing?section=contenido")} onCreate={() => openMarketing("/marketing?section=crear")} onChanged={drafts.reload} />;
   if (area === "audiencias") return <AudiencesView workspace={workspace} />;
   return <KlaviyoFormsView workspace={workspace} />;

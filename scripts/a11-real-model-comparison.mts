@@ -9,7 +9,7 @@ import { loadApiEnv } from "@e-nora/config";
 import { klaviyoEmailJsonSchema, klaviyoEmailGenerationOutputSchema, metaAdsJsonSchema, metaAdsOutputSchema, instagramPostJsonSchema, instagramPostOutputSchema, toAnthropicCompatibleOutputSchema, sanitizeGeneratedEmailHtml } from "../packages/ai/src/index.js";
 import { buildAgentTools, CONSULTANT_ASSIGNMENT_PROMPT, loadConsultantAssignmentBlock } from "../apps/api/src/ai-runtime.js";
 import { loadMarketingCreativeContext } from "../apps/api/src/marketing-creative-context.js";
-import { marketingCreativeRequestSchema, marketingCreativeGuidance, marketingProductVisionImages, MARKETING_CREATIVE_METHOD_VERSION } from "../apps/api/src/marketing-creative-method.js";
+import { marketingCreativeRequestSchema, marketingCreativeGuidance, marketingProductVisionImages, marketingCreativeMethodMetadata, MARKETING_CREATIVE_METHOD_VERSION } from "../apps/api/src/marketing-creative-method.js";
 import { marketingDraftStorageFields } from "../apps/api/src/marketing-draft-storage.js";
 import { calculateLabApiPrice } from "../apps/web/src/app/admin/laboratorio-ia/lab-price.js";
 import { parseOutput } from "./ai-model-lab-core.js";
@@ -18,12 +18,12 @@ const env = loadApiEnv(process.env);
 assert.ok(env.SUPABASE_URL.includes("kopcblejsxpkxoykldyh.supabase.co"), "TEST only");
 const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } });
 const org = "5ebc7b02-ca86-402e-bd61-9abd22f1ee04", store = "5e84efa9-6e7f-4759-8b87-22119401bd81", connection = "836364d9-1e29-4273-be44-29f73a53722a", owner = "ead62983-1938-4da6-af8f-13cb64d8cd3e";
-const batch = "a11-real-2026-11-01-v1", dir = resolve(`.e-nora-test-lab/${batch}`);
+const batch = "a11-real-2026-11-02-v4", dir = resolve(`.e-nora-test-lab/${batch}`);
 const models = [
   { id: "claude-haiku-5-5", label: "Haiku", provider: "anthropic" }, { id: "claude-sonnet-5-5", label: "Sonnet", provider: "anthropic" }, { id: "claude-opus-5-5", label: "Opus", provider: "anthropic" },
   { id: "gpt-6-luna", label: "Luna", provider: "openai" }, { id: "gpt-6.1-sol", label: "Sol", provider: "openai" }, { id: "gpt-6.1-terra", label: "Terra", provider: "openai" },
 ];
-const hash = (value: unknown) => createHash("sha256").update(typeof value === "string" ? value : JSON.stringify(value)).digest("hex");
+const hash = (value: unknown) => createHash("sha256").update(typeof value === "string" || Buffer.isBuffer(value) ? value : JSON.stringify(value)).digest("hex");
 const uuid = (value: string) => { const h = hash(value); return `${h.slice(0,8)}-${h.slice(8,12)}-5${h.slice(13,16)}-a${h.slice(17,20)}-${h.slice(20,32)}`; };
 await mkdir(dir, { recursive: true });
 let report: any;
@@ -34,7 +34,7 @@ if (!report) {
   const version = await db.from("agent_versions").select("id,version,prompt_code,prompt_version,model,allowed_tools,approval_mode,agent_definitions!inner(code)").eq("agent_definitions.code", "a11_generador_marketing").eq("is_active", true).order("created_at", { ascending: false }).limit(1).single();
   assert.ifError(version.error); assert.ok(version.data);
   const prompt = await db.from("prompt_versions").select("content").eq("code", version.data.prompt_code).eq("version", version.data.prompt_version).single(); assert.ifError(prompt.error); assert.ok(prompt.data);
-  const connectors = await db.from("integration_connections").select("connector_id").eq("organization_id", org).eq("status", "connected"); assert.ifError(connectors.error);
+  const connectors = await db.from("integration_connections").select("provider").eq("organization_id", org).in("status", ["connected", "syncing"]); assert.ifError(connectors.error);
   const assignment = await loadConsultantAssignmentBlock(db, org);
   const productIds = ["84078332-b745-4405-9693-4f123024ab34", "f1557789-ff68-437f-8cc0-f6bb5395da23"];
   const brief = "Presenta The Collection Snowboard: Hydrogen como producto protagonista y Selling Plans Ski Wax como complemento opcional. Audiencia propuesta: personas adultas interesadas en snowboard; no hay segmento confirmado. Usa los nombres, precios, moneda, URLs y fotos exactos del catálogo. Español de España, voz elegante y señorial de E-NORA. No existe pack ni descuento confirmado. Sin urgencia, escasez, testimonios, atributos técnicos o beneficios no verificados. No inventes contacto, logo o garantía. Un argumento principal y CTA con destino real. Producto bien visible y texto legible en móvil. La imagen 1 corresponde al snowboard y la 2 a la cera. No añadas recursos visuales externos. Los datos de inventario no están verificados. Pieza nueva para revisión, sin publicar ni enviar.";
@@ -43,7 +43,10 @@ if (!report) {
     const request = marketingCreativeRequestSchema.parse({ creative_mode: mode, product_ids: productIds });
     const context = await loadMarketingCreativeContext(db, org, store, `${brief} ${mode === "guided" ? "Presentación de producto, fotografía editorial, ritual y kit" : ""}`, request);
     assert.equal(context.products.length, 2);
-    const images = marketingProductVisionImages(context.products, [], true); assert.equal(images.length, 2, "Both products must have actual photos");
+    // The RPC sorts products; attachment order is part of the experimental protocol.
+    const orderedProducts = productIds.map((id) => context.products.find((product) => product.id === id)!);
+    assert.ok(orderedProducts.every(Boolean));
+    const images = marketingProductVisionImages(orderedProducts, [], true); assert.equal(images.length, 2, "Both products must have actual photos");
     const assets = [];
     for (const [index, image] of images.entries()) {
       const path = resolve(dir, `product-${index}.jpg`);
@@ -53,13 +56,13 @@ if (!report) {
         assert.ok((response.headers.get("content-type") ?? "").startsWith("image/")); bytes = Buffer.from(await response.arrayBuffer());
         assert.ok(bytes.length > 100 && bytes.length < 5_000_000); await writeFile(path, bytes);
       }
-      assets.push({ path, url: image.url, sha256: hash(bytes), mime: "image/jpeg" });
+      assets.push({ path, url: image.url, product_id: orderedProducts[index]!.id, title: orderedProducts[index]!.title, sha256: hash(bytes), mime: "image/jpeg" });
     }
     const runId = uuid(`${batch}:${channel}:${mode}`);
-    const prepared = buildAgentTools(env, db, runId, org, version.data.allowed_tools, prompt.data.content, store, (connectors.data ?? []).map((row) => row.connector_id), ["client_visible"], { actorUserId: owner, approvalMode: version.data.approval_mode as any });
+    const prepared = buildAgentTools(env, db, runId, org, version.data.allowed_tools.filter((name: string) => mode === "guided" || name !== "search_internal_email_design_playbook"), prompt.data.content, store, ["core", ...(connectors.data ?? []).map((row) => row.provider)], ["client_visible"], { actorUserId: owner, approvalMode: version.data.approval_mode as any });
     const system = `${prepared.systemPrompt}\n\n${CONSULTANT_ASSIGNMENT_PROMPT}\n\n${marketingCreativeGuidance("create", channel)}`;
     const channelBrief = channel === "email_klaviyo" ? "Email comercial: HTML de tablas responsive con estilos inline, composición editorial completa, imágenes reales y CTA. No ocultes la pieza en creative_notes; el HTML debe ser utilizable. Si falta el destino de baja, señala el requisito pendiente sin inventarlo." : channel === "meta_ads" ? "Anuncio estático 4:5. El contrato nativo contiene copy y creative_notes: concreta composición, foto, jerarquía, posición, tamaños y texto sobreimpreso. No afirmes que has producido un PNG." : "Publicación estática de Instagram. Caption y creative_brief deben definir una composición 4:5 realizable, sin confundir instrucciones con imagen terminada. No propongas un vídeo sin producirlo.";
-    const blocks = [{ label: "Brief del consultor", data: { channel, content_type: "campaign", brief: `${brief}\n${channelBrief}`, creative_method: { version: MARKETING_CREATIVE_METHOD_VERSION, ...request }, store_id: connection } }, ...context.blocks, assignment];
+    const blocks = [{ label: "Brief del consultor", data: { channel, content_type: "campaign", brief: `${brief}\n${channelBrief}`, creative_method: marketingCreativeMethodMetadata(request), store_id: connection } }, ...context.blocks, assignment];
     const input = { run_id: runId, agent_code: "a11_generador_marketing", agent_version: version.data.version, organization_id: org, actor_user_id: owner, trigger_type: "manual", objective: `Generar borrador de marketing para ${channel} de tipo campaign`, allowed_tools: [], approval_mode: version.data.approval_mode };
     const schema = channel === "email_klaviyo" ? klaviyoEmailJsonSchema : channel === "meta_ads" ? metaAdsJsonSchema : instagramPostJsonSchema;
     const caseId = `${channel}-${mode}`;
@@ -99,14 +102,18 @@ async function runModel(model: typeof models[number]) {
     await save(); console.log(JSON.stringify({ started: c.id, model: model.id }));
     const prompt = `CONTEXTO Y ENCARGO VERIFICADOS\n${JSON.stringify({ input: c.input, blocks: c.blocks })}\nLas imágenes adjuntas corresponden en orden a los productos del catálogo. No uses herramientas, red ni archivos adicionales: el paquete ya contiene los datos. Devuelve solo el JSON del contrato. No atribuyas rendimiento comercial al historial editorial.`;
     const schema = JSON.parse(await readFile(`${dir}/${c.id}.schema.json`, "utf8"));
-    const args = model.provider === "anthropic" ? ["-p", "--model", model.id, "--output-format", "json", "--input-format", "stream-json", "--tools", "", "--safe-mode", "--strict-mcp-config", "--no-session-persistence", "--system-prompt", c.system, "--json-schema", JSON.stringify(toAnthropicCompatibleOutputSchema(schema))] : ["exec", "--ignore-user-config", "--disable", "shell_tool", "--disable", "unified_exec", "--skip-git-repo-check", "--ephemeral", "--sandbox", "read-only", "--model", model.id, "-c", 'model_reasoning_effort="medium"', "--output-schema", `${dir}/${c.id}.schema.json`, ...c.assets.flatMap((asset: any) => ["--image", asset.path]), "--json", "-"];
+    assert.equal(hash(schema), c.schema_hash); assert.equal(hash(c.system), c.prompt_hash); assert.equal(hash(c.blocks), c.context_hash);
+    for (const asset of c.assets) assert.equal(hash(await readFile(asset.path)), asset.sha256, "Image bytes changed during comparison");
+    const args = model.provider === "anthropic" ? ["-p", "--model", model.id, "--output-format", "stream-json", "--verbose", "--input-format", "stream-json", "--tools", "", "--safe-mode", "--strict-mcp-config", "--no-session-persistence", "--system-prompt", c.system, "--json-schema", JSON.stringify(toAnthropicCompatibleOutputSchema(schema))] : ["exec", "--ignore-user-config", "--disable", "shell_tool", "--disable", "unified_exec", "--skip-git-repo-check", "--ephemeral", "--sandbox", "read-only", "--model", model.id, "-c", 'model_reasoning_effort="medium"', "--output-schema", `${dir}/${c.id}.schema.json`, ...c.assets.flatMap((asset: any) => ["--image", asset.path]), "--json", "-"];
     const content = [{ type: "text", text: prompt }, ...await Promise.all(c.assets.map(async (asset: any) => ({ type: "image", source: { type: "base64", media_type: asset.mime, data: (await readFile(asset.path)).toString("base64") } })))];
     const start = Date.now(); const result = await invoke(model.provider === "anthropic" ? claude : "codex", args, model.provider === "anthropic" ? JSON.stringify({ type: "user", message: { role: "user", content }, parent_tool_use_id: null, session_id: "default" }) + "\n" : `${c.system}\n\n${prompt}`);
     row.duration_ms = Date.now() - start;
     await writeFile(`${dir}/${c.id}.${model.id}.receipt.json`, JSON.stringify(result));
     let failure = result.exit === 0 ? "" : result.stderr.slice(-1800) || "CLI returned an error";
     if (model.provider === "anthropic") {
-      let parsed: any; try { parsed = JSON.parse(result.stdout); } catch { failure ||= "Claude output was not JSON"; }
+      const events = result.stdout.split(/\r?\n/).flatMap((line) => { try { return [JSON.parse(line)]; } catch { return []; } });
+      const parsed = events.findLast((event: any) => event.type === "result");
+      if (!parsed) failure ||= "Claude did not return a result event";
       row.raw_response = parsed?.structured_output ? JSON.stringify(parsed.structured_output) : parsed?.result ?? "";
       const served = Object.keys(parsed?.modelUsage ?? {}); row.actual_model = served.length === 1 ? parsed.modelUsage[served[0]!].canonicalModel ?? served[0] : null; row.model_verified = row.actual_model === model.id;
       if (parsed?.usage) row.usage = { input: parsed.usage.input_tokens ?? null, cached: parsed.usage.cache_read_input_tokens ?? null, cache_creation: parsed.usage.cache_creation_input_tokens ?? null, output: parsed.usage.output_tokens ?? null };

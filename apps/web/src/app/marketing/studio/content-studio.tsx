@@ -897,7 +897,7 @@ export function ContentStudio({
       }
       setChat((current) => [...current, { role: "assistant", text: data.answer, labels }]);
     } catch (error) {
-      if (epoch === documentEpoch.current) setChat((current) => [...current, { role: "assistant", text: error instanceof Error ? error.message : "No se pudo hablar con la IA.", error: true }]);
+      if (epoch === documentEpoch.current) setChat((current) => [...current, { role: "assistant", text: error instanceof Error ? error.message : "No se pudo hablar con NORA.", error: true }]);
     } finally {
       if (epoch === documentEpoch.current) setChatBusy(false);
     }
@@ -995,7 +995,7 @@ export function ContentStudio({
       setLauncher(false);
       setRightTab("calidad");
       onDraftsChanged();
-      toast.success("Pieza escrita por la IA. Revísala bloque a bloque.");
+      toast.success("Pieza escrita por NORA. Revísala bloque a bloque.");
     } catch {
       const key = generationIdentity.current?.key;
       let recoveredDraft: Partial<MarketingDraft> & { id: string } | null = null;
@@ -1072,8 +1072,8 @@ export function ContentStudio({
 
   const rightTabs: Array<[string, string, number | undefined]> =
     channel === "email"
-      ? [["bloque", "Bloque", undefined], ["email", "Email", undefined], ["calidad", "Revisión", pendingChecks], ["ia", "IA", undefined]]
-      : [["pieza", "Pieza", undefined], ["calidad", "Revisión", pendingChecks], ["ia", "IA", undefined]];
+      ? [["bloque", "Bloque", undefined], ["email", "Email", undefined], ["calidad", "Revisión", pendingChecks], ["ia", "NORA", undefined]]
+      : [["pieza", "Pieza", undefined], ["calidad", "Revisión", pendingChecks], ["ia", "NORA", undefined]];
   const activeRight = rightTabs.some(([key]) => key === rightTab) ? rightTab : rightTabs[0]![0];
 
   let rightBody: ReactNode = null;
@@ -1313,7 +1313,7 @@ export function ContentStudio({
   return (
     <div className={s.studio}>
       {localRecovery ? <Banner tone="info" title="Tienes cambios sin guardar de otra sesión" action={<><Button size="sm" onClick={restoreLocalRecovery}>Recuperarlos</Button><Button size="sm" variant="ghost" onClick={discardLocalRecovery}>Descartar</Button></>}>Se quedaron en este navegador el {new Date(localRecovery.updatedAt).toLocaleString("es-ES", { dateStyle: "long", timeStyle: "short" })}.</Banner> : null}
-      {pendingGeneration ? <Banner tone="info" title="La IA dejó una pieza a medias" action={<><Button size="sm" disabled={generating} onClick={() => void resumePendingGeneration()}>{generating ? "Comprobando…" : "Recuperarla"}</Button><Button size="sm" variant="ghost" onClick={clearPendingGeneration}>Descartar</Button></>}>Se cortó antes de terminar. Puedes recuperar lo que llegó a hacer.</Banner> : null}
+      {pendingGeneration ? <Banner tone="info" title="NORA dejó una pieza a medias" action={<><Button size="sm" disabled={generating} onClick={() => void resumePendingGeneration()}>{generating ? "Comprobando…" : "Recuperarla"}</Button><Button size="sm" variant="ghost" onClick={clearPendingGeneration}>Descartar</Button></>}>Se cortó antes de terminar. Puedes recuperar lo que llegó a hacer.</Banner> : null}
       <header className={s.top}>
         <div className={s.piece}>
           <h1 className={`${s.crumb} client-sr-title`}>Crear contenido</h1>

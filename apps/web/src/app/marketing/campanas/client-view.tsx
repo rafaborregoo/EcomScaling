@@ -138,7 +138,7 @@ export function ClientView({
             setNote(
               hasConsultant
                 ? `Creada «${title}». Tu consultor recibe un aviso y la revisará; puedes seguir editándola.`
-                : `Creada «${title}». ${withAi ? "Tu asistente prepara el primer borrador." : "Escribe el email cuando quieras."}`,
+                : `Creada «${title}». ${withAi ? "NORA prepara el primer borrador." : "Escribe el email cuando quieras."}`,
             );
             if (withAi) onWriteWithAi(itemId);
           }}
@@ -151,7 +151,7 @@ export function ClientView({
         lead={
           hasConsultant
             ? "Tu consultor no programa nada sin tu visto bueno. Mira cómo lo recibirán tus clientes y dile si sale."
-            : "Aprueba la pieza y prográmala en Klaviyo desde su ficha. Puedes pedirle otra versión a tu asistente."
+            : "Aprueba la pieza y prográmala en Klaviyo desde su ficha. Puedes pedirle otra versión a NORA."
         }
       >
         {cards.length === 0 ? (
@@ -189,7 +189,7 @@ export function ClientView({
                           {hasConsultant ? "Aprobar y que salga" : "Aprobar"}
                         </Btn>
                         <Btn variant="ghost" onClick={() => open(row)}>
-                          {hasConsultant ? "Pedir cambios" : "Pedir otra versión a mi asistente"}
+                          {hasConsultant ? "Pedir cambios" : "Pedir otra versión a NORA"}
                         </Btn>
                       </>
                     ) : null}
@@ -208,7 +208,7 @@ export function ClientView({
       <Section
         id="mias"
         title="Las que has creado tú"
-        lead={hasConsultant ? "Tu consultor las ve y puede anotar o corregir; tú las sigues editando." : "Las escribe tu asistente y las apruebas tú."}
+        lead={hasConsultant ? "Tu consultor las ve y puede anotar o corregir; tú las sigues editando." : "Las escribe NORA y las apruebas tú."}
         action={
           <div className={s.secActs}>
             <button type="button" className={buttonVariants({ variant: "secondary" })} onClick={onPropose}>
@@ -396,7 +396,7 @@ function CreateCampaign({
       lead={
         hasConsultant
           ? "Puedes crear tu propia campaña aunque tengas consultor. Le llegará un aviso para que la revise."
-          : "Dinos qué quieres contar y tu asistente prepara el borrador. Tú lo apruebas."
+          : "Dinos qué quieres contar y NORA prepara el borrador. Tú lo apruebas."
       }
     >
       <div className={s.newBox}>
@@ -436,7 +436,7 @@ function CreateCampaign({
           <textarea id="c-brief" value={brief} placeholder="El producto, la oferta y el plazo. Con eso basta." onChange={(event) => setBrief(event.target.value)} />
         </div>
         {channel === "Email" ? (
-          <Checkbox checked={ai} onCheckedChange={setAi}>Que la IA prepare el primer borrador del email</Checkbox>
+          <Checkbox checked={ai} onCheckedChange={setAi}>Que NORA prepare el primer borrador del email</Checkbox>
         ) : null}
         <p className={s.hint}>
           {hasConsultant

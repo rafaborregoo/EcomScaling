@@ -3,8 +3,8 @@ import { PublicEntryShell } from "@/components/public-entry-shell";
 import { HowItWorks, type HowItWorksStep } from "@/components/marketing/how-it-works";
 
 export const metadata: Metadata = {
-  title: "Software para consultores de ecommerce: toda tu cartera Shopify en una pantalla",
-  description: "Ve qué cliente te necesita, qué han detectado los especialistas de NORA y qué te toca aprobar. Informes con tu marca. Plazas limitadas para consultores.",
+  title: "Software con IA para consultores de ecommerce",
+  description: "Gestiona tu cartera de ecommerce con E-NORA. Prioriza clientes, prepara planes y revisa campañas e informes con tu marca. Conecta Shopify, Meta Ads y Klaviyo.",
   alternates: { canonical: "/consultores" },
 };
 
@@ -15,8 +15,8 @@ const STEPS: HowItWorksStep[] = [
   {
     label: "Priorizar",
     at: 5,
-    title: "Toda tu cartera, por orden de urgencia",
-    body: "Cada mañana ves qué cliente te necesita y por qué: stock que se agota, una campaña por revisar, anuncios que caen.",
+    title: "Tu atención, donde más hace falta",
+    body: "Identifica qué clientes necesitan una revisión y por qué. E-NORA reúne las alertas de stock, anuncios y campañas para ayudarte a organizar el trabajo de tu cartera.",
     points: [
       "Cada cliente con su estado (Urgente, Revisar, Vigilar o Al día) y el motivo.",
       "Lo que espera tu decisión, contado y a mano.",
@@ -26,8 +26,8 @@ const STEPS: HowItWorksStep[] = [
   {
     label: "Entender",
     at: 15,
-    title: "Los especialistas de NORA analizan cada tienda",
-    body: "Leen Shopify, Meta y Klaviyo y te proponen qué hacer, con sus fuentes. Tú decides qué se convierte en tarea.",
+    title: "Cada tienda, con su análisis",
+    body: "Los especialistas de NORA analizan los datos de Shopify, Meta Ads y Klaviyo de cada cliente. Consulta sus propuestas, revisa las fuentes y decide qué acciones pasan a tus tareas.",
     points: [
       "Especialistas de stock, anuncios y email sobre los datos de cada tienda.",
       "Cada lectura con sus fuentes a la vista.",
@@ -37,8 +37,8 @@ const STEPS: HowItWorksStep[] = [
   {
     label: "Planificar",
     at: 26,
-    title: "Preparas el plan del cliente con NORA",
-    body: "NORA propone fases, hitos y una meta de ventas a partir de sus datos. Lo ajustas, lo activas y el cliente lo ve en su pantalla.",
+    title: "Objetivos claros para cada cliente",
+    body: "Prepara con NORA un plan basado en los datos de la tienda, con fases, hitos y una meta de ventas. Ajusta la propuesta y compártela con el cliente al activarla.",
     points: [
       "Fases e hitos pensados para la temporada y sus fechas comerciales.",
       "Una meta de ventas que parte de lo que vende hoy la tienda.",
@@ -48,8 +48,8 @@ const STEPS: HowItWorksStep[] = [
   {
     label: "Revisar",
     at: 38,
-    title: "Revisas lo que crea tu cliente",
-    body: "Sus campañas te llegan para revisar. Las corriges a mano o se lo pides a NORA, y las programas en su Klaviyo.",
+    title: "Cada campaña, con tu criterio",
+    body: "Revisa los emails que prepara tu cliente antes de programarlos. Edita el contenido, pide cambios a NORA y programa la campaña en la cuenta de Klaviyo de la tienda.",
     points: [
       "Te avisa cuando un cliente crea una campaña.",
       "La corriges en el editor o pides el cambio a NORA en una frase.",
@@ -59,8 +59,8 @@ const STEPS: HowItWorksStep[] = [
   {
     label: "Reunirte",
     at: 51,
-    title: "De la llamada, a las tareas",
-    body: "Pegas la transcripción de la llamada. NORA resume lo hablado y propone las tareas; tú eliges cuáles se crean y con qué dueño.",
+    title: "Reuniones que se convierten en avances",
+    body: "Añade la transcripción de una llamada y NORA prepara el resumen, los acuerdos y las tareas propuestas. Revisa qué se crea y asigna cada tarea a su responsable.",
     points: [
       "Vale la transcripción de Loom, Fathom, Meet o la que uses.",
       "Resumen, acuerdos y tareas con dueño: el cliente, tú o los dos.",
@@ -70,8 +70,8 @@ const STEPS: HowItWorksStep[] = [
   {
     label: "Informar",
     at: 63,
-    title: "Un informe al mes, con tu marca",
-    body: "NORA prepara el informe de cada cliente: lectura del periodo, cifras clave y recomendaciones. Lo revisas y se envía solo.",
+    title: "El progreso de tus clientes, con tu marca",
+    body: "Entrega informes con las cifras clave, el análisis del periodo y las recomendaciones de NORA. Revísalos, añade la identidad de tu consultoría y configura el envío mensual.",
     points: [
       "Con el nombre, el logo y el color de tu consultoría.",
       "En PDF, por correo o con envío mensual automático.",
@@ -86,8 +86,8 @@ export default function ConsultantsPage() {
       <main id="public-content">
         <HowItWorks
           id="consultores-title"
-          title="E-NORA para consultores"
-          lead="Toda tu cartera en una pantalla: qué cliente te necesita, qué han visto los especialistas de NORA y qué te toca aprobar. En seis pasos."
+          title="Toda tu consultoría de ecommerce en un mismo lugar"
+          lead="E-NORA reúne los datos, los planes y el trabajo de tus clientes en una plataforma con IA. Prioriza las tiendas que necesitan atención, revisa sus campañas y entrega informes con tu marca."
           video="/video/consultores"
           videoLabel="Vídeo: cómo trabaja un consultor con E-NORA en seis pasos, con una cartera de ejemplo"
           steps={STEPS}

@@ -14,6 +14,7 @@ import {
 } from "./shopify-bulk.js";
 import { applyRefundAggregatesToOrderItems } from "./shopify-refund-aggregates.js";
 import { sumShopifyLineDiscountAllocations } from "./shopify-order-line-money.js";
+import { isMissingShopifyFinancialBasisSchema, shopifyOrderFinancialBasis, withoutShopifyFinancialBasis } from "./shopify-order-financial-basis.js";
 import { isMissingShopifyNetMetricsSchema, withoutShopifyNetMetrics } from "./shopify-order-line-net.js";
 import { aggregateShopifyDiscountAllocations, type ShopifyDiscountAllocation } from "./shopify-discount-allocations.js";
 import {
@@ -151,8 +152,10 @@ type BulkOrderLine = BulkLine & {
   currentSubtotalPriceSet?: MoneySet;
   currentTotalDiscountsSet?: MoneySet;
   totalShippingPriceSet?: MoneySet;
+  currentShippingPriceSet?: MoneySet;
   currentTotalTaxSet?: MoneySet;
   currentTotalPriceSet?: MoneySet;
+  totalPriceSet?: MoneySet;
   tags?: string[] | null;
   returnStatus?: string | null;
   paymentGatewayNames?: string[] | null;
@@ -989,6 +992,12 @@ async function upsertBlockRows(
 
   for (const batch of chunk(rows, UPSERT_BATCH_SIZE)) {
     let { error } = await supabase.from(table).upsert(batch, { onConflict });
+
+    if (error && table === "shopify_order_facts" && isMissingShopifyFinancialBasisSchema(error.message)) {
+      const retry = await supabase.from(table).upsert(batch.map(withoutShopifyFinancialBasis), { onConflict });
+      error = retry.error;
+      if (!error) block.warning = block.warning ?? "shopify_financial_basis_migration_pending";
+    }
 
     if (error && table === "shopify_order_items") {
       let fallbackRows = batch;
@@ -2663,9 +2672,10 @@ export async function runShopifyInitialSync(
                 presentmentCurrencyCode
                 currentSubtotalPriceSet { shopMoney { amount } }
                 currentTotalDiscountsSet { shopMoney { amount } }
-                totalShippingPriceSet { shopMoney { amount } }
+                currentShippingPriceSet { shopMoney { amount } }
                 currentTotalTaxSet { shopMoney { amount } }
                 currentTotalPriceSet { shopMoney { amount } }
+                totalPriceSet { shopMoney { amount } }
                 customer { id numberOfOrders }
                 lineItems {
                   edges {
@@ -2751,19 +2761,21 @@ export async function runShopifyInitialSync(
               normalizeMoney(refund.totalRefundedSet?.shopMoney?.amount),
             0,
           ) ?? 0,
-        net_sales:
-          normalizeMoney(order.currentTotalPriceSet?.shopMoney?.amount) -
-          (order.refunds?.reduce(
+        ...shopifyOrderFinancialBasis(
+          order.totalPriceSet?.shopMoney?.amount,
+          order.currentTotalPriceSet?.shopMoney?.amount,
+          order.refunds?.reduce(
             (total, refund) =>
               total +
               normalizeMoney(refund.totalRefundedSet?.shopMoney?.amount),
             0,
-          ) ?? 0),
+          ) ?? 0,
+        ),
         current_subtotal_price: normalizeMoney(
           order.currentSubtotalPriceSet?.shopMoney?.amount,
         ),
         current_shipping_price: normalizeMoney(
-          order.totalShippingPriceSet?.shopMoney?.amount,
+          order.currentShippingPriceSet?.shopMoney?.amount,
         ),
         current_total_tax: normalizeMoney(
           order.currentTotalTaxSet?.shopMoney?.amount,

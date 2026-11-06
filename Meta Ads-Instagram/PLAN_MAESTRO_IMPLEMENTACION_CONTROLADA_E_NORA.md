@@ -1,12 +1,14 @@
 # Plan maestro de implementación controlada — e-NORA
 
 **Fecha:** 31 de octubre de 2026, Europe/Madrid.  
-**Versión del documento:** 1.3; actualización de ejecución: 1 de noviembre de 2026.
+**Versión del documento:** 1.7; actualización de ejecución: 3 de noviembre de 2026.
 
-**Estado:** inventario técnico IMP-00 contrastado y entrega local IMP-01 preparada con controles iniciales IMP-10. Revisiones desplegadas identificadas y diferencias de historial documentadas. Activación, piloto conectado y ensayo de reversión pendientes; IMP-10 continúa como requisito transversal.
+**Estado:** IMP-00 contrastado; IMP-01, IMP-02, IMP-03 e IMP-04 implementados localmente con controles iniciales IMP-10. La publicación se reserva para la entrega final y no bloquea el desarrollo. Siguiente bloque: IMP-05. La activación y el piloto siguen sujetos a validación del entorno; IMP-10 continúa como requisito transversal.
+
+**Última entrega:** [IMP-04: curación e ingestión incremental](implementacion/IMP04_CURACION_INGESTION_CONOCIMIENTO_2026-11-03.md). Siguiente desarrollo: IMP-05; publicación y activación al finalizar el plan.
 
 **Responsable de decisión:** dirección de producto/CTO; cada fase requiere un responsable técnico y un consultor revisor designados.  
-**Seguimiento más reciente:** [entrega técnica, candidato y condiciones de activación](implementacion/CIERRE_TECNICO_IMP00_IMP01_IMP10_2026-11-01.md). Históricos: [conciliación](implementacion/SEGUNDO_AVANCE_CONCILIACION_Y_CONEXIONES_2026-11-01.md) y [primer avance](implementacion/ESTADO_IMPLEMENTACION_2026-11-01.md). Los registros distinguen implementación local, comprobación del entorno y activación. Las observaciones de la revisión original del 31/10 se mantienen como históricas.
+**Seguimiento anterior:** [IMP-03: contratos, aprobaciones y trazabilidad](implementacion/IMP03_CONTRATOS_APROBACIONES_TRAZABILIDAD_2026-11-02.md). Anteriores: [IMP-02](implementacion/IMP02_ECONOMIA_COMPARABLE_2026-11-02.md), [validación aislada](implementacion/VALIDACION_AISLADA_Y_ESTADO_2026-11-02.md), [entrega técnica y candidato](implementacion/CIERRE_TECNICO_IMP00_IMP01_IMP10_2026-11-01.md), [conciliación](implementacion/SEGUNDO_AVANCE_CONCILIACION_Y_CONEXIONES_2026-11-01.md) y [primer avance](implementacion/ESTADO_IMPLEMENTACION_2026-11-01.md). Los registros distinguen implementación local, comprobación del entorno y activación. Las observaciones de la revisión original del 31/10 se mantienen como históricas.
 
 ## 1. Resultado que queremos conseguir
 
@@ -364,6 +366,8 @@ La interfaz debe hablar en lenguaje de negocio: evidencia y próximo paso. Los I
 
 ### IMP-02 — Economía comparable y cobertura de costes
 
+**Ejecución local:** implementada el 02/11/2026. [Cambios, pruebas y límites de la entrega](implementacion/IMP02_ECONOMIA_COMPARABLE_2026-11-02.md). Una migración nueva preparada, sin aplicar en producción; publicación al final del plan.
+
 - **Prioridad / esfuerzo:** P0 / M. Responsable: datos/finanzas de producto. Referencias: E03/E08/E09.
 - **Trabajo:** inventariar definiciones financieras, costes y vigencia temporal; conciliar una muestra de fixtures/pedidos autorizados sin exponer PII; detectar moneda, periodos y costes incompletos. Reutilizar el cálculo canónico.
 - **Dependencias:** IMP-00; IMP-01 cuando se usen conversiones Meta.
@@ -374,6 +378,8 @@ La interfaz debe hablar en lenguaje de negocio: evidencia y próximo paso. Los I
 
 ### IMP-03 — Contratos, ámbito, aprobaciones y trazabilidad
 
+**Ejecución local:** implementada el 02/11/2026. [Cambios, pruebas y límites](implementacion/IMP03_CONTRATOS_APROBACIONES_TRAZABILIDAD_2026-11-02.md). Contrato estricto, ámbito por tienda/audiencia, reserva vinculada al origen, escrituras verificadas y recibo atómico; activación reservada para la entrega final.
+
 - **Prioridad / esfuerzo:** P0 / M. Responsable: backend/seguridad. Referencias: E02/E06/E12.
 - **Trabajo:** mapear y extender contratos actuales de evidencia/decisión; revisar pertenencia, tienda, audiencia, configuración, herramientas y validación de ejecutores. Revisar qué análisis pendientes consumen los planificadores y qué campos pueden materializar tareas.
 - **Dependencias:** IMP-00; cambios compatibles con IMP-01/02.
@@ -383,6 +389,8 @@ La interfaz debe hablar en lenguaje de negocio: evidencia y próximo paso. Los I
 - **Reversión:** desactivar el nuevo flujo de materialización o escritura; conservar lecturas y versión estable si están autorizadas.
 
 ### IMP-04 — Curación e ingestión incremental del conocimiento
+
+**Ejecución local, 03/11/2026:** 30 módulos con decisión; seis ampliaciones y tres fichas nuevas. Plan incremental sin archivados, embeddings reales Voyage, recuperación 12/12 y reversión probados en PostgreSQL aislado. Revisión humana de activación y publicación remota pendientes para la entrega final. [Evidencia y límites](implementacion/IMP04_CURACION_INGESTION_CONOCIMIENTO_2026-11-03.md).
 
 - **Prioridad / esfuerzo:** P1 / M. Responsable: conocimiento y consultor experto. Referencia: E07.
 - **Trabajo:** inventario RAG real, duplicados y destinos; fusionar módulos equivalentes; corregir claims; revisar cada documento; registrar fuente, autoridad, ámbito, audiencia, versión, checksum y relación de reemplazo. Separar metodología global de hechos/aprendizajes del cliente.
@@ -599,8 +607,10 @@ Este archivo será el plan de referencia de esta propuesta. Los prompts de audit
 |---|---|---|
 | Plan y encaje V1–V3 con agentes | DOCUMENTADO | Este archivo y revisión del usuario/CTO |
 | Inventario de producción y fuentes por organización | IMP-00 técnico contrastado: revisiones web/API/worker identificadas; 86 fuentes remotas archivadas y una entrada sin original conservado | Conservar excepciones documentadas y actualizar baseline al activar una entrega |
-| Controles P0 y línea base de evaluación | IMP-01 implementado localmente: medición compartida, caché y recuperación de conexiones; preparación inicial IMP-10 | Validar candidato aislado, revisar y desplegar; comprobar fuentes reconectadas y piloto. Economía y otros controles siguen en IMP-02/03 |
-| Curación e ingestión V1–V3 | PENDIENTE, IMP-04 | Decisiones por módulo, aprobaciones e inventario RAG actualizado |
+| Controles P0 y línea base de evaluación | IMP-01 validado en copia aislada; preparación inicial IMP-10 | Activación y piloto en la entrega final; desarrollo local continúa sin esperar al despliegue |
+| Economía comparable y cobertura de costes | IMP-02 implementado localmente: base de devoluciones, cobertura por moneda, política común, ventanas y consumidores | Validación completa del entorno y reconciliación de datos al publicar; IMP-03 continúa contratos, ámbitos y trazabilidad |
+| Contratos, ámbito, aprobaciones y trazabilidad | IMP-03 implementado localmente: cliente/consultor, tiendas, audiencia interna, decisiones y recibos vinculados al origen | Validación del entorno completo y sesiones reales al publicar; IMP-04 continúa curación del conocimiento |
+| Curación e ingestión V1–V3 | IMP-04 implementado localmente: 30 decisiones, seis ampliaciones, tres fichas, Voyage y rollback aislado | Revisión editorial humana, contraste actualizado de inventario y activación en la publicación final; siguiente desarrollo IMP-05 |
 | Política de poca señal, briefs y experimentos | PROPUESTO | Implementación compatible, evaluación y consumidor real |
 | Piloto consultivo y cuadro de mando | PENDIENTE | Baseline, límites, cohortes elegibles y resultados revisados |
 | Nuevas fuentes, A30 y vídeo | CONDICIONADO | Valor demostrado, fuentes, permisos, coste y controles aprobados |

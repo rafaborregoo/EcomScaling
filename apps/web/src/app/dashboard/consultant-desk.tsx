@@ -1023,7 +1023,7 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
           label="Ticket medio por día"
         />
       ),
-      ai: agentLine("A02", monitor.data, /ticket|aov|pedido medio|cesta/i),
+      ai: null,
       href: route("/shopify"),
       action: "Ver ventas en Shopify",
     },
@@ -1048,9 +1048,7 @@ export function ConsultantClientDesk({ userId, organizationId, organizationName,
           onSelect={(id) => router.push(route(`/meta/campanas/${encodeURIComponent(id)}`))}
         />
       ),
-      ai: roasAnalysis && roasAnalysis.verdict !== "insufficient"
-        ? <A29Reading analysis={roasAnalysis} tag="A29" audience="consultor" fallback={agentLine("A02", monitor.data, /roas|meta|anunc|campa/i)} />
-        : agentLine("A02", monitor.data, /roas|meta|anunc|campa/i),
+      ai: roasAnalysis ? <A29Reading analysis={roasAnalysis} tag="A29" audience="consultor" /> : null,
       href: route(hasMeta ? "/meta" : "/integraciones/meta"),
       action: hasMeta ? "Ver campañas en Meta" : "Conectar Meta",
     },

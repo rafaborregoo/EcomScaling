@@ -6,6 +6,7 @@ import { createLogger } from "@e-nora/observability";
 import { verifyShopifyWebhookHmac } from "./shopify-webhooks.js";
 import { applyRefundAggregatesToOrderItems } from "./shopify-refund-aggregates.js";
 import { isMissingShopifyNetMetricsSchema } from "./shopify-order-line-net.js";
+import { isMissingShopifyFinancialBasisSchema, shopifyOrderFinancialBasis, withoutShopifyFinancialBasis } from "./shopify-order-financial-basis.js";
 import {
   isMissingShopifyProductMetadataSchema,
   normalizeShopifyProductTags,
@@ -731,10 +732,7 @@ async function processOrderCreateOrUpdate(
         ? gid("Customer", customer.id)
         : null;
 
-  const { data: orderRow, error: orderError } = await supabase
-    .from("shopify_order_facts")
-    .upsert(
-      {
+  const orderWrite = {
         organization_id: ctx.organizationId,
         store_id: ctx.storeId,
         external_order_id: externalOrderId,
@@ -764,15 +762,13 @@ async function processOrderCreateOrUpdate(
             ?.amount,
         ),
         current_total_tax: normalizeMoney(
-          payload.total_tax as string | undefined,
+          (payload.current_total_tax ?? payload.total_tax) as string | undefined,
         ),
         current_total_price: normalizeMoney(
-          payload.total_price as string | undefined,
+          (payload.current_total_price ?? payload.total_price) as string | undefined,
         ),
         refunds: sumRefunds(payload.refunds),
-        net_sales:
-          normalizeMoney(payload.total_price as string | undefined) -
-          sumRefunds(payload.refunds),
+        ...shopifyOrderFinancialBasis(payload.total_price, payload.current_total_price ?? payload.total_price, sumRefunds(payload.refunds)),
         total_items: Array.isArray(payload.line_items)
           ? (payload.line_items as Array<Record<string, unknown>>).reduce(
               (total, item) =>
@@ -786,11 +782,16 @@ async function processOrderCreateOrUpdate(
         external_updated_at: (payload.updated_at as string | undefined) ?? null,
         cancelled_at: (payload.cancelled_at as string | undefined) ?? null,
         cancel_reason: (payload.cancel_reason as string | undefined) ?? null,
-      },
-      { onConflict: "store_id,external_order_id" },
-    )
-    .select("id, external_updated_at")
-    .single();
+      };
+  let orderResult = await supabase.from("shopify_order_facts")
+    .upsert(orderWrite, { onConflict: "store_id,external_order_id" })
+    .select("id, external_updated_at").single();
+  if (orderResult.error && isMissingShopifyFinancialBasisSchema(orderResult.error.message)) {
+    orderResult = await supabase.from("shopify_order_facts")
+      .upsert(withoutShopifyFinancialBasis(orderWrite), { onConflict: "store_id,external_order_id" })
+      .select("id, external_updated_at").single();
+  }
+  const { data: orderRow, error: orderError } = orderResult;
 
   if (orderError || !orderRow) {
     throw new Error(
@@ -1029,8 +1030,6 @@ async function processRefundCreate(
     .from("shopify_order_facts")
     .update({
       refunds: totalDevuelto,
-      net_sales:
-        normalizeMoney(order.current_total_price) - totalDevuelto,
     })
     .eq("organization_id", ctx.organizationId)
     .eq("store_id", ctx.storeId)

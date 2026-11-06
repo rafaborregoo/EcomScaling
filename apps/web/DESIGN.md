@@ -302,3 +302,9 @@ La evidencia está en `.impeccable/review/comunicacion-analitica/`: capturas de 
 - **Don't** declarar éxito o buena salud cuando la consulta o la tasa no están disponibles.
 - **Don't** decorar la cifra con una unidad, escala o atribución distinta de su contrato real.
 - **Don't** presentar las capturas de revisión como assets que se sirven al usuario.
+
+### A02 contextual — 6 de noviembre de 2026
+
+Nueve ubicaciones estables `A02 · 01` a `A02 · 09` identifican la lectura del negocio en Pulso, canales, rentabilidad, integraciones, trabajo y móvil. Una línea de interpretación y metadatos precede al detalle plegable; las cifras usan una lista de definición sin tarjetas anidadas. Tipografía y colores heredan el módulo, con marca pequeña neutra y controles accesibles.
+
+La interfaz distingue área vacía, área ausente, evidencia insuficiente, lectura pendiente, error, laboratorio y caducidad. El registro y comportamiento están documentados en `docs/A02_INTEGRACION_INTERFAZ.md` de la raíz del repositorio. Verificación visual pendiente: Computer Use no pudo determinar la URL de Chrome y detuvo la inspección; no se acredita revisión visual.

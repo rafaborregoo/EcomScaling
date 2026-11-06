@@ -193,19 +193,19 @@ export const AGENT_REVIEWS: AgentReview[] = [
     code: "a16_texto_sobre_imagen",
     job: "Preparar texto para piezas visuales",
     reads: "Brief, imagen, marca y restricciones de composición",
-    candidate: economical,
-    reason: "Texto breve con restricciones comprobables.",
+    candidate: "Claude Opus 5.5; GPT-6.1 Sol como fallback",
+    reason: "Opus conserva una jerarquía visual y copy breve sin CTA ni claims no verificados en las imágenes probadas.",
     validation:
-      "Longitud, legibilidad, idioma y correspondencia entre brief y pieza.",
+      "Texto, coordenadas, legibilidad y correspondencia entre brief, imagen y producto.",
   },
   {
     code: "a17_plan_semanal",
     job: "Organizar el trabajo semanal",
-    reads: "Objetivos, tareas, capacidad y camino activo",
-    candidate: balanced,
+    reads: "Semanas comparables, acumulado mensual, historial, tareas, capacidad e hitos de la tienda",
+    candidate: "Sonnet 5.5 principal · Terra fallback",
     reason:
-      "Prioridades y dependencias importan más que el volumen de lectura.",
-    validation: "Plan realizable, sin duplicación y con vínculo a objetivos.",
+      "Seis modelos con el contexto corregido de TEST: Sonnet explica las cifras y prioridades pendientes en 15 s; Terra es prudente y cuesta menos. Un plan por tienda compartido entre cliente y consultor.",
+    validation: "06/11: seis respuestas; cinco contratos válidos y Opus inválido por due_hint >100 caracteres. Sonnet ~$0,138/run y ~$0,69 por 30 días (cinco runs), equivalente API CLI. Visible en Tareas → Plan semanal.",
   },
   {
     code: "a18_plan_mensual",
@@ -342,6 +342,34 @@ export const AGENT_MODEL_ANALYSES: Record<
     taskReview?: { scenario: string; detail: string }[];
   }
 > = {
+  a17_plan_semanal: {
+    heading: "A17 cerrado: Sonnet principal; Terra fallback",
+    evidence: "Seis respuestas con snapshot runtime corregido de E-NORA Demo: dos semanas completas, acumulado mensual, 72 tareas, Camino e histórico. Cinco contratos válidos; Opus incumple due_hint de 100 caracteres. Cliente y consultor comparten la lectura en Tareas → Plan semanal.",
+    candidates: [],
+    unresolved: "Una muestra TEST por modelo; no prueba superioridad universal ni herramientas dinámicas. La tanda anterior queda archivada por contexto incompleto. Sol y Opus agotaron 300 s antes del reintento: consumo incompleto desconocido. Sonnet ~$0,138/run y ~$0,69 por cinco ejecuciones en treinta días; Terra ~$0,063 y ~$0,31. Equivalente API en frío con catálogo 28/10 y sobrecarga CLI, no factura ni tarifa actual verificada. Manuales, tools, juez y fallback se suman.",
+    readings: {
+      "claude-haiku-5-5": "Cálculos y deduplicación correctos. Relega la meta solo a A18, pese a que A17 debe priorizar con ella. 123 s; ~$0,077 conservador con tramo largo sobre tokens agregados, ~$0,39/5 ejecuciones.",
+      "claude-sonnet-5-5": "Principal: explica -13,5%, cifras, hitos y tarea vencida sin inventar causas; evita duplicados. 14,7 s y ~$0,69/mes. La sexta jornada del acumulado es parcial y no debe extrapolarse como día completo.",
+      "claude-opus-5-5": "Dos ideas útiles: verificación conjunta de Black Friday y prueba de carrito. Más tareas no es el problema: due_hint excede el contrato. Reintento de 356 s, ~$0,959 completo (~$4,79/5), más consumo desconocido del timeout previo.",
+      "gpt-6-luna": "Válido y muy barato (~$0,029/5), pero demasiado genérico: sin cifras, prioridad vencida ni límites de fuentes. 17 s.",
+      "gpt-6.1-sol": "Válido y prudente, pero sin cifras en la conclusión ni mejora sobre Sonnet. Timeout y reintento de 325 s; ~$0,63/5 más consumo desconocido del intento incompleto.",
+      "gpt-6.1-terra": "Fallback válido, cifras y ventanas correctas, no inventa causa ni gasto cero. 19 s, ~$0,31/5; menos útil para priorizar la tarea vencida que Sonnet.",
+    },
+  },
+  a16_texto_sobre_imagen: {
+    heading: "A16 cerrado: Opus principal; Sol fallback",
+    evidence: "Doce respuestas finales: seis modelos sobre una imagen del banco y un producto Shopify verificado, con píxeles adjuntos. Opus da la composición más equilibrada y específica; las coordenadas colocan texto en espacios limpios. Sol es breve y seguro, con copy visual útil para el producto.",
+    candidates: [],
+    unresolved: "El flujo ya admite PNG privado, vinculación a A11 y recuperación por slide. La comparación original de dos imágenes debe repetirse con el recorte final, marca y contexto de carrusel nuevos. Coste de referencia anterior: $0,0538 por llamada con Opus; cada slide consume una llamada y los vecinos pueden aumentar la entrada. A15, A11 y revisiones se suman. No es factura de API.",
+    readings: {
+      "claude-haiku-5-5": "Muy barato y más detallado. Repite ideas en la creatividad abstracta y usa más bloques; vigilar composición y concisión.",
+      "claude-sonnet-5-5": "Buen contraste y jerarquía. Sugiere ‘Muy pronto’ sin una fecha confirmada y usa márgenes muy estrechos en el producto.",
+      "claude-opus-5-5": "Mejor equilibrio entre jerarquía, copy, fidelidad visual y ubicación. Omite CTA sin destino confirmado; coste más alto.",
+      "gpt-6-luna": "Coste bajo y respuesta segura, pero los titulares son genéricos y no usan el rasgo gráfico del producto.",
+      "gpt-6.1-sol": "Alternativa segura y concisa; ‘Geometría a todo color’ funciona para la imagen, aunque omite el nombre del producto.",
+      "gpt-6.1-terra": "Seguro y claro, pero repite el nombre del producto sin una idea visual diferenciadora.",
+    },
+  },
   a11_generador_marketing: {
     heading: "A11: revisión humana de los borradores del Estudio",
     evidence: "Tres casos de control por seis modelos: 18 respuestas y 18 contratos válidos. Además, Terra completa la comparación histórica de email. Se utilizó el prompt activo v11 del entorno TEST ES IA. Los casos nuevos son sintéticos y no ejecutan herramientas, generación de imágenes, envío ni publicación.",

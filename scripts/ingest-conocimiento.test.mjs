@@ -39,6 +39,19 @@ test("checksum igual al de la API (sha256 del contenido recortado)", () => {
   const api = createHash("sha256").update("hola").digest("hex");
   assert.equal(checksumDe("\nhola\n"), api);
   assert.equal(normalizaRuta(".\\a\\b\\"), "a/b");
+  assert.equal(normalizaRuta("conocimiento\\\\fase-05\\\\01-rag-produccion\\\\a.md"), "conocimiento/fase-05/01-rag-produccion/a.md");
+});
+
+test("a selected release never prunes unrelated documents in its folder",()=>{
+  const plan=planSync({scope:SCOPE,local:[local("a.md","next")],remote:[doc("a","a.md","old"),doc("untouched","b.md","other")],prune:false});
+  assert.equal(plan.update[0].id,"a");assert.deepEqual(plan.archive,[]);
+});
+test("failed or limited imports never perform the final archive phase",async()=>{
+  const plan=planSync({scope:SCOPE,local:[local("a.md","new"),local("b.md","new")],remote:[doc("old","old.md","old")]});
+  const limited=fakeApi();await executePlan(plan,limited,{limit:1,log:()=>{}});
+  assert.ok(limited.calls.every(([kind])=>kind!=="archive"));
+  const failed=fakeApi();failed.create=async()=>{throw Error("provider unavailable");};
+  await executePlan(plan,failed,{log:()=>{}});assert.deepEqual(failed.calls,[]);
 });
 
 test("plan: CREATE, UPDATE, UNCHANGED y ARCHIVE por ruta + checksum", () => {

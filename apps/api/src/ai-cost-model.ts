@@ -9,8 +9,9 @@
  * medida en el entorno de pruebas con las versiones actuales (`BASELINE`).
  */
 import { createClient } from "@supabase/supabase-js";
+import { A17_MODEL_DECISION } from "@e-nora/contracts";
 import { z } from "zod";
-import { A01_MODEL_DECISION, A02_MODEL_DECISION, A04_MODEL_DECISION, A05_MODEL_DECISION, A06_MODEL_DECISION, A08_MODEL_DECISION, getAgentModelDecision } from "@e-nora/contracts";
+import { A01_MODEL_DECISION, A02_MODEL_DECISION, A04_MODEL_DECISION, A05_MODEL_DECISION, A06_MODEL_DECISION, A08_MODEL_DECISION, A12_MODEL_DECISION, A13_MODEL_DECISION, A14_MODEL_DECISION, A15_MODEL_DECISION, A16_MODEL_DECISION, A19_MODEL_DECISION, getAgentModelDecision } from "@e-nora/contracts";
 import type { LoadedApiEnv } from "@e-nora/config";
 import type { AuthContext } from "./auth-context.js";
 import { recordAuditLog } from "./audit-log.js";
@@ -58,14 +59,14 @@ const BASELINE: Record<string, Profile> = {
   a08_gestor_conocimiento: A08_MODEL_DECISION.benchmarkProfile,
   a09_copiloto_consultor: { input_total: 152693, cache_read: 117377, output: 2911 },
   a11_generador_marketing: { input_total: 74001, cache_read: 55031, output: 2872 },
-  a12_analista_email: { input_total: 27918, cache_read: 11020, output: 3014 },
-  a13_operativa_shopify: { input_total: 14392, cache_read: 809, output: 657 },
-  a14_operativa_meta: { input_total: 38692, cache_read: 17554, output: 583 },
-  a15_analista_imagenes: { input_total: 1626, cache_read: 0, output: 284 },
-  a16_texto_sobre_imagen: { input_total: 1955, cache_read: 0, output: 148 },
-  a17_plan_semanal: { input_total: 12187, cache_read: 2669, output: 1787 },
+  a12_analista_email: A12_MODEL_DECISION.benchmarkProfile,
+  a13_operativa_shopify: A13_MODEL_DECISION.benchmarkProfile,
+  a14_operativa_meta: A14_MODEL_DECISION.benchmarkProfile,
+  a15_analista_imagenes: A15_MODEL_DECISION.benchmarkProfile,
+  a16_texto_sobre_imagen: A16_MODEL_DECISION.benchmarkProfile,
+  a17_plan_semanal: A17_MODEL_DECISION.benchmarkProfile,
   a18_plan_mensual: { input_total: 15582, cache_read: 0, output: 477 },
-  a19_arquitecto_camino: { input_total: 57397, cache_read: 32558, output: 11226 },
+  a19_arquitecto_camino: A19_MODEL_DECISION.benchmarkProfile,
   a19_revision_camino: { input_total: 16169, cache_read: 0, output: 1757 },
   a20_retencion_clientes: { input_total: 446049, cache_read: 375115, output: 1131 },
   a21_adquisicion_shopify: { input_total: 50608, cache_read: 20843, output: 2104 },
@@ -227,7 +228,7 @@ export async function setAdminAiAgentSettings(env: LoadedApiEnv, context: AuthCo
     }
     const decision = getAgentModelDecision(item.agent_code);
     if (decision && item.model !== null && item.model !== decision.model)
-      return { ok: false as const, statusCode: 400, error: "agent_model_fixed", message: `${decision.agentCode} tiene ${decision.label} fijado tras cerrar su revisión en el laboratorio.` };
+      return { ok: false as const, statusCode: 400, error: "agent_model_fixed", message: `${decision.agentCode} tiene ${decision.label} asignado en el laboratorio${decision.status === "closed" ? " con revisión cerrada" : " de forma provisional"}.` };
   }
 
   const supabase = serviceClient(env);

@@ -1,0 +1,508 @@
+{
+  "schema_version": 1,
+  "release_id": "IMP04-meta-v1",
+  "prepared_on": "2026-11-03",
+  "project_ref": "cthjwpeygpzwdmjkxeqa",
+  "visibility": "global",
+  "audience": "consultant_only",
+  "authority": "operational",
+  "editorial_status": "implementation_review_complete_activation_pending",
+  "content_origin": "ai_assisted_editorial_synthesis_of_provided_sources",
+  "human_review": "not_claimed_by_implementation_agent",
+  "checksum_basis": "UTF-8, LF, trimmed; before-images retain their original bytes",
+  "profile": {
+    "model": "voyage-context-4",
+    "dimensions": 1024,
+    "chunking": "structural-v4"
+  },
+  "bases_file": "conocimiento/meta-ads/99-auditoria/bases.json",
+  "bases_checksum": "7e1b71a5ad5a63224282a0ab5c60f9a5f77b7978581a3fcd4732932d6e614bf4",
+  "sources": [
+    {
+      "id": "META-001",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Conocimiento_Auditoria/01-rag-produccion/META-001_gobernanza_activos_cuenta.md",
+      "checksum": "4c9f3b37cffe30b548adf0e2b0bd924dada6f4e1f009d88eb568d4701cbc0421",
+      "decision": "merge",
+      "targets": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K01_activos_medicion_e_incidencias.md"
+      ],
+      "reason": "Activos y accesos observables; no presumir facturación o permisos de escritura.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-002",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Conocimiento_Auditoria/01-rag-produccion/META-002_tracking_eventos_calidad_datos.md",
+      "checksum": "ed119f693cd2f2f317251ea3da4b4004cba653a4e12c37001d2c49e26c3b8c7f",
+      "decision": "extend",
+      "targets": [
+        "conocimiento/fase-05/01-rag-produccion/5.02-atribucion-incrementalidad-calidad-y-madurez.md",
+        "conocimiento/meta-ads/01-rag-produccion/META-K01_activos_medicion_e_incidencias.md"
+      ],
+      "reason": "A24 y fuentes compatibles; discrepancia no prueba error de píxel.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-003",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Conocimiento_Auditoria/01-rag-produccion/META-003_estructura_objetivos_audiencias.md",
+      "checksum": "0944021e2b74d1efc6dfc1a40caf017d676033f0a53d43648f746b2e4151b9c5",
+      "decision": "extend",
+      "targets": [
+        "conocimiento/fase-05/01-rag-produccion/5.02-estructura-audiencias-creative-y-testing.md"
+      ],
+      "reason": "Objetivo y estructura contextual; consolidación no universal.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-004",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Conocimiento_Auditoria/01-rag-produccion/META-004_diagnostico_embudo_ads_tienda.md",
+      "checksum": "4b076cfe2a922aa46b37a671e8b9988bfb5be09c9bf9e31a964c9353ceb7ca05",
+      "decision": "extend",
+      "targets": [
+        "conocimiento/fase-05/01-rag-produccion/5.01-playbooks-de-adquisicion-y-diversificacion.md",
+        "conocimiento/fase-05/01-rag-produccion/5.02-atribucion-incrementalidad-calidad-y-madurez.md"
+      ],
+      "reason": "Embudo con denominadores compatibles y causas por contrastar.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "ECO-001",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Conocimiento_Auditoria/01-rag-produccion/ECO-001_roas_cpa_margenes_rentabilidad.md",
+      "checksum": "ea38314bc4a3874d934de6b8f41388ae193591d9fbc638b3f17c6bbe1abd16b5",
+      "decision": "extend",
+      "targets": [
+        "conocimiento/fase-05/01-rag-produccion/5.04-oferta-pricing-y-economics.md"
+      ],
+      "reason": "Usar el motor financiero; no confundir ROAS atribuido con beneficio.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-005",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Conocimiento_Auditoria/01-rag-produccion/META-005_estrategia_creativos_y_evaluacion.md",
+      "checksum": "58af105c80212f8d2be022a21c310883f8fac60728db7c9e437fe33c769b4f01",
+      "decision": "merge",
+      "targets": [
+        "conocimiento/fase-05/01-rag-produccion/5.02-estructura-audiencias-creative-y-testing.md",
+        "conocimiento/meta-ads/01-rag-produccion/META-K03_briefs_inventario_y_brechas_creativas.md"
+      ],
+      "reason": "Hipótesis, activos observados y evaluación; no producción audiovisual inventada.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-006",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Conocimiento_Auditoria/01-rag-produccion/META-006_optimizacion_presupuesto_aprendizaje.md",
+      "checksum": "a9a78618da52aa12c53a7f1c19e71d23114f747c7419fa64fe3c314015fb5f3c",
+      "decision": "extend",
+      "targets": [
+        "conocimiento/fase-05/01-rag-produccion/5.02-estructura-audiencias-creative-y-testing.md"
+      ],
+      "reason": "Cadencia según señal, riesgo y economía; sin porcentajes ni días obligatorios.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-007",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Conocimiento_Auditoria/01-rag-produccion/META-007_senales_entrega_diagnostico_incidentes.md",
+      "checksum": "4f1e7057d18bf339d1c47e09730e6d73ee021b8ae1caf62412cfb1bf78aa9fbe",
+      "decision": "merge",
+      "targets": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K01_activos_medicion_e_incidencias.md"
+      ],
+      "reason": "Incidente observado, hipótesis y siguiente comprobación.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-008",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Conocimiento_Auditoria/01-rag-produccion/META-008_ia_publicidad_limites_integraciones.md",
+      "checksum": "8f1b9cb826b22819c39cf3cacc7780b3fec7dab2e43b30a89bcf2d0f4ce5b5f4",
+      "decision": "reuse",
+      "targets": [
+        "conocimiento/fase-08/01-rag-produccion/8.15-verificacion-de-ejecucion.md"
+      ],
+      "reason": "Reutilizar verificación y autorización existentes; no indexar promoción de proveedores.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "GAP-VIDEO",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Conocimiento_Auditoria/05-experience-learning/GAP_VIDEO_CREATIVOS_Y_PLAN_FUENTES.md",
+      "checksum": "4122c9f96029eeee783e46d88bf27d4965b92fe1d49e4d9a772bfcd15bbefe3e",
+      "decision": "defer",
+      "targets": [],
+      "reason": "No acredita producción audiovisual; se conserva para IMP-11 fuera del índice.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-SB-001",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Presupuesto_Reducido_Auditoria_V2/01-rag-produccion/META-SB-001_presupuesto_reducido_criterios_y_objetivo_de_prueba.md",
+      "checksum": "b908eedbb081ec53c1bd5720af8e934ed84fb786f2f2af7115a66fdbe894aa4f",
+      "decision": "extend",
+      "targets": [
+        "conocimiento/fase-05/01-rag-produccion/5.02-estructura-audiencias-creative-y-testing.md"
+      ],
+      "reason": "Eliminar cortes universales de presupuesto y explicitar escenarios de señal.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-SB-002",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Presupuesto_Reducido_Auditoria_V2/01-rag-produccion/META-SB-002_fase_aprendizaje_cadencia_de_cambios.md",
+      "checksum": "216b373b77568c60f06a9b90933ca417a3c44d33fb3447c173c20e5100d1898f",
+      "decision": "extend",
+      "targets": [
+        "conocimiento/fase-05/01-rag-produccion/5.02-estructura-audiencias-creative-y-testing.md"
+      ],
+      "reason": "Separar monitorización urgente e intervención; no inferir resets de aprendizaje.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-SB-003",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Presupuesto_Reducido_Auditoria_V2/01-rag-produccion/META-SB-003_escasez_datos_estadistica_experimentos.md",
+      "checksum": "3c898f974bead2eb34c4eb5b4de283f04b1f1c3438aff3232027f2864ae2df1c",
+      "decision": "extend",
+      "targets": [
+        "conocimiento/fase-05/01-rag-produccion/5.02-estructura-audiencias-creative-y-testing.md"
+      ],
+      "reason": "Comparación descriptiva frente a experimento; sin significación automática.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-SB-004",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Presupuesto_Reducido_Auditoria_V2/01-rag-produccion/META-SB-004_cliente_ideal_nicho_y_mensaje.md",
+      "checksum": "d3bfdcea0c485c845479764bcc023a629942c2d74b59ba0bca78d32fc4cbf29b",
+      "decision": "merge",
+      "targets": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K02_investigacion_personas_y_evidencia_creativa.md",
+        "conocimiento/fase-05/01-rag-produccion/5.05-retencion-cohortes-ltv-y-economia-de-relacion.md"
+      ],
+      "reason": "Necesidad y valor agregado como hipótesis; no perfiles sensibles ni targeting implícito.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-SB-005",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Presupuesto_Reducido_Auditoria_V2/01-rag-produccion/META-SB-005_benchmark_competidores_biblioteca_meta.md",
+      "checksum": "168da1bffcba69585c8c374728c19d0487078b4de8564e6aa2edf108c85e4515",
+      "decision": "merge",
+      "targets": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K02_investigacion_personas_y_evidencia_creativa.md"
+      ],
+      "reason": "Permanencia de anuncio no demuestra resultados económicos.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-SB-006",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Presupuesto_Reducido_Auditoria_V2/01-rag-produccion/META-SB-006_objetivos_conversion_vs_notoriedad.md",
+      "checksum": "9c751f43730c41a3f71052adb2cbe02637191227a07b71ea59fa1ab94a443873",
+      "decision": "extend",
+      "targets": [
+        "conocimiento/fase-05/01-rag-produccion/5.02-estructura-audiencias-creative-y-testing.md"
+      ],
+      "reason": "Evaluar objetivo aprobado; no invalidar awareness por presupuesto.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-SB-007",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Presupuesto_Reducido_Auditoria_V2/01-rag-produccion/META-SB-007_contenido_organico_como_senal_creativa.md",
+      "checksum": "cbdd49611594d24fe60d8780b63782c07bd539b584f0c8a201099d58019c3073",
+      "decision": "merge",
+      "targets": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K03_briefs_inventario_y_brechas_creativas.md"
+      ],
+      "reason": "Orgánico aporta hipótesis, no validación de rentabilidad pagada.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-SB-008",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Presupuesto_Reducido_Auditoria_V2/01-rag-produccion/META-SB-008_consolidacion_ofertas_campanas_adsets.md",
+      "checksum": "6a8f52f37ef7758f099b96f8c5bb03a4746cccd2b9ce4b5c1164e29f4b3eb13e",
+      "decision": "extend",
+      "targets": [
+        "conocimiento/fase-05/01-rag-produccion/5.02-estructura-audiencias-creative-y-testing.md"
+      ],
+      "reason": "Concentrar señal solo con restricciones y justificación de estructura.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "ECO-SB-001",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Presupuesto_Reducido_Auditoria_V2/01-rag-produccion/ECO-SB-001_cac_ltv_roas_y_beneficio_absoluto.md",
+      "checksum": "415c26a060fcd9912fbadf29cb0f6c3a0477f0bca7282bb4b677534741787551",
+      "decision": "extend",
+      "targets": [
+        "conocimiento/fase-05/01-rag-produccion/5.04-oferta-pricing-y-economics.md",
+        "conocimiento/fase-05/01-rag-produccion/5.05-retencion-cohortes-ltv-y-economia-de-relacion.md"
+      ],
+      "reason": "Contribución, horizonte, payback y caja; no financiar pérdidas con LTV sin evidencia.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-CR-001",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Estrategia_Creativa_Auditoria_V3/01-rag-produccion/META-CR-001_estrategia_creativa_objetivos_y_brechas.md",
+      "checksum": "acd6f3931e97aa94c22000926dc7ffeed5ca6e694a0d204693a4f1d16095ee6d",
+      "decision": "merge",
+      "targets": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K03_briefs_inventario_y_brechas_creativas.md"
+      ],
+      "reason": "Brief con problema, objetivo, hipótesis y condiciones de revisión.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-CR-002",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Estrategia_Creativa_Auditoria_V3/01-rag-produccion/META-CR-002_investigacion_marca_producto_promesa_prueba.md",
+      "checksum": "3ffa0772e77d3ee986743ca07eb664da0edc10b470f84e9231dd8676323a185e",
+      "decision": "merge",
+      "targets": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K02_investigacion_personas_y_evidencia_creativa.md",
+        "conocimiento/fase-05/01-rag-produccion/5.04-aov-bundles-cross-sell-y-ofertas-de-valor.md"
+      ],
+      "reason": "Promesa y prueba, producto real y viabilidad económica.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-CR-003",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Estrategia_Creativa_Auditoria_V3/01-rag-produccion/META-CR-003_reputacion_investigacion_objeciones_multifuente.md",
+      "checksum": "80fe13f877f4601d712e7944a418fe482eac5b3384d5597dc4dbf27b1134a27e",
+      "decision": "merge",
+      "targets": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K02_investigacion_personas_y_evidencia_creativa.md"
+      ],
+      "reason": "Muestra autorizada, sesgos y procedencia; no simular rastreo externo.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-CR-004",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Estrategia_Creativa_Auditoria_V3/01-rag-produccion/META-CR-004_mineria_reviews_comentarios_y_ai.md",
+      "checksum": "08740c9b57fb6896de8168e096e3701a08ec940fa99cd170800499288a61af9a",
+      "decision": "merge",
+      "targets": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K02_investigacion_personas_y_evidencia_creativa.md"
+      ],
+      "reason": "Deduplicar, minimizar identificadores y exigir citas respaldadas.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-CR-005",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Estrategia_Creativa_Auditoria_V3/01-rag-produccion/META-CR-005_personas_como_hipotesis_y_validacion.md",
+      "checksum": "e22203089fcef016d32f841a1710dcddbca1121a62a921d5a76d8db89ad35101",
+      "decision": "merge",
+      "targets": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K02_investigacion_personas_y_evidencia_creativa.md"
+      ],
+      "reason": "Personas como hipótesis agrupadas; no inferir salud individual.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-CR-006",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Estrategia_Creativa_Auditoria_V3/01-rag-produccion/META-CR-006_matriz_persona_angulo_conciencia_formato.md",
+      "checksum": "940645abaa23bcdce187cb86e0ff5b844422a90a08885447c91d915ddd706e88",
+      "decision": "merge",
+      "targets": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K03_briefs_inventario_y_brechas_creativas.md"
+      ],
+      "reason": "Separar ángulo, concepto, hook, formato, placement y objetivo; sin cuotas.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-CR-007",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Estrategia_Creativa_Auditoria_V3/01-rag-produccion/META-CR-007_benchmark_competencia_inspiracion_no_copia.md",
+      "checksum": "67e4c26a92097af5e4f1176bccd6ce6def4d3abb88f7b108aa8cc65b5394cf05",
+      "decision": "merge",
+      "targets": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K02_investigacion_personas_y_evidencia_creativa.md"
+      ],
+      "reason": "Resolver el conflicto V2/V3 como inspiración abstracta y prueba propia.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-CR-008",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Estrategia_Creativa_Auditoria_V3/01-rag-produccion/META-CR-008_gap_analysis_persona_awareness_diversidad.md",
+      "checksum": "047d4f57fc4f64f141b2909f9b6a1db85ddcacf38859c025d3e6650195168940",
+      "decision": "merge",
+      "targets": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K03_briefs_inventario_y_brechas_creativas.md"
+      ],
+      "reason": "Brecha potencial frente a ausencia no evaluable o exclusión intencional.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-CR-009",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Estrategia_Creativa_Auditoria_V3/01-rag-produccion/META-CR-009_roadmap_trimestral_mensual_creativos.md",
+      "checksum": "9ad0869503f5f346345f158e31803d04d50f94928b6a2dd14ba77b9bab86d0ce",
+      "decision": "merge",
+      "targets": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K03_briefs_inventario_y_brechas_creativas.md"
+      ],
+      "reason": "Planificación ligada a responsables y capacidad; no publicación implícita.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "META-CR-010",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Estrategia_Creativa_Auditoria_V3/01-rag-produccion/META-CR-010_casos_ilustrativos_sin_prueba_causal.md",
+      "checksum": "dbba68db3c4e248888e949cdb4045533449c80f841e4fe0d4ebacdc6e4e25354",
+      "decision": "exclude",
+      "targets": [],
+      "reason": "Casos de marcas sin métricas verificadas; no indexar como evidencia de éxito.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    },
+    {
+      "id": "ECO-CR-001",
+      "path": "Meta Ads-Instagram/ENORA_MetaAds_Estrategia_Creativa_Auditoria_V3/01-rag-produccion/ECO-CR-001_bundling_aov_margen_y_oferta.md",
+      "checksum": "d713014ec413f0f29974c43803620f2eca4e4def48674b0e156efcdee91a4c8f",
+      "decision": "extend",
+      "targets": [
+        "conocimiento/fase-05/01-rag-produccion/5.04-aov-bundles-cross-sell-y-ofertas-de-valor.md"
+      ],
+      "reason": "AOV proyectado no equivale a contribución; validar composición, costes y stock.",
+      "evidence_kind": "provided_transcript_editorial_synthesis"
+    }
+  ],
+  "targets": [
+    {
+      "path": "conocimiento/fase-05/01-rag-produccion/5.01-playbooks-de-adquisicion-y-diversificacion.md",
+      "title": "FASE 5.01 — Playbooks de adquisición, demanda y diversificación",
+      "checksum": "fae255a317ebad260ac44f260baab848a8da3e81c63bea82f267b7a16f16b8db",
+      "base_id": "bfda1603-d3d7-4774-bff6-29b9e2099bd0"
+    },
+    {
+      "path": "conocimiento/fase-05/01-rag-produccion/5.02-estructura-audiencias-creative-y-testing.md",
+      "title": "FASE 5.02 — Estructura, audiencias, creative y testing",
+      "checksum": "63903bbc8cc38872ef6be6df0b6c53b54f05bd3a2b1cdda2b87859f4d66cae1e",
+      "base_id": "9812b91b-c551-49e3-9491-6f32b144105e"
+    },
+    {
+      "path": "conocimiento/fase-05/01-rag-produccion/5.02-atribucion-incrementalidad-calidad-y-madurez.md",
+      "title": "FASE 5.02 — Atribución, incrementalidad, calidad de cliente y madurez",
+      "checksum": "55c9a8bff31ea530eaf4cb4e6a454f309028c8df41b69c54b9e486abe744a677",
+      "base_id": "5060259d-b6cf-46eb-8be1-f766988508c6"
+    },
+    {
+      "path": "conocimiento/fase-05/01-rag-produccion/5.04-oferta-pricing-y-economics.md",
+      "title": "FASE 5.04 — Oferta, pricing y economics",
+      "checksum": "756ef2259d5254fe3c8359a159ac8ce85416e11ff702f559887756ddd0b2df6c",
+      "base_id": "e3d752a0-464f-4f4b-96f7-aa4476cbdae9"
+    },
+    {
+      "path": "conocimiento/fase-05/01-rag-produccion/5.04-aov-bundles-cross-sell-y-ofertas-de-valor.md",
+      "title": "FASE 5.04 — AOV, bundles, cross-sell y ofertas de valor",
+      "checksum": "4dbe6cad6e689494c7d7f385162495631115623216206540e6b98bf9aafd1623",
+      "base_id": "805dcf02-433d-4c1a-9dd9-943d219cfc2e"
+    },
+    {
+      "path": "conocimiento/fase-05/01-rag-produccion/5.05-retencion-cohortes-ltv-y-economia-de-relacion.md",
+      "title": "FASE 5.05 — Retención, cohortes, LTV y economía de relación",
+      "checksum": "39ff800dfcd1b35d5d47895d06c35d1e15daea02671cd87e4e97eb62addb8a12",
+      "base_id": "7103017c-e6ab-4219-88bb-b88558ee3ac0"
+    },
+    {
+      "path": "conocimiento/meta-ads/01-rag-produccion/META-K01_activos_medicion_e_incidencias.md",
+      "title": "META-K01 — Activos, medición e incidencias verificables de Meta",
+      "checksum": "d4824d3e07ec78bcc4553de83cae629ff5b9fa8c9e87f5a175d40f0f22f75484",
+      "base_id": null
+    },
+    {
+      "path": "conocimiento/meta-ads/01-rag-produccion/META-K02_investigacion_personas_y_evidencia_creativa.md",
+      "title": "META-K02 — Investigación creativa, personas y evidencia de fuentes",
+      "checksum": "d74c18382869ee46da5cfd58af2c030b4203c2c8f3f33c9aae56fe1d91d71317",
+      "base_id": null
+    },
+    {
+      "path": "conocimiento/meta-ads/01-rag-produccion/META-K03_briefs_inventario_y_brechas_creativas.md",
+      "title": "META-K03 — Briefs, inventario y brechas creativas con evidencia",
+      "checksum": "53b5b3de2f617ccebda760f06d54cc21dfd943f92edf6fbac453bd643c201aea",
+      "base_id": null
+    }
+  ],
+  "questions": [
+    {
+      "id": "META-RAG-01",
+      "question": "¿Un anuncio activo sin impresiones demuestra un problema creativo si no puedo comprobar la facturación?",
+      "expected_paths": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K01_activos_medicion_e_incidencias.md"
+      ],
+      "top_k": 8
+    },
+    {
+      "id": "META-RAG-02",
+      "question": "¿Una discrepancia entre compras Shopify y compras Meta prueba que el píxel está roto?",
+      "expected_paths": [
+        "conocimiento/fase-05/01-rag-produccion/5.02-atribucion-incrementalidad-calidad-y-madurez.md"
+      ],
+      "top_k": 8
+    },
+    {
+      "id": "META-RAG-03",
+      "question": "¿Con dos compras puedo declarar un ganador y cambiar presupuesto tras siete días fijos?",
+      "expected_paths": [
+        "conocimiento/fase-05/01-rag-produccion/5.02-estructura-audiencias-creative-y-testing.md"
+      ],
+      "top_k": 8
+    },
+    {
+      "id": "META-RAG-04",
+      "question": "¿Un ROAS alto confirma beneficio si faltan costes y devoluciones conciliadas?",
+      "expected_paths": [
+        "conocimiento/fase-05/01-rag-produccion/5.04-oferta-pricing-y-economics.md"
+      ],
+      "top_k": 8
+    },
+    {
+      "id": "META-RAG-05",
+      "question": "¿El LTV futuro previsto permite financiar pérdidas de adquisición sin comprobar payback y caja?",
+      "expected_paths": [
+        "conocimiento/fase-05/01-rag-produccion/5.05-retencion-cohortes-ltv-y-economia-de-relacion.md"
+      ],
+      "top_k": 8
+    },
+    {
+      "id": "META-RAG-06",
+      "question": "¿Priorizar un bundle con AOV más alto aunque aporte menos contribución y falte stock?",
+      "expected_paths": [
+        "conocimiento/fase-05/01-rag-produccion/5.04-aov-bundles-cross-sell-y-ofertas-de-valor.md"
+      ],
+      "top_k": 8
+    },
+    {
+      "id": "META-RAG-07",
+      "question": "¿Cómo analizar reseñas duplicadas y evitar inferir atributos sensibles de personas?",
+      "expected_paths": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K02_investigacion_personas_y_evidencia_creativa.md"
+      ],
+      "top_k": 8
+    },
+    {
+      "id": "META-RAG-08",
+      "question": "¿Un anuncio de competidor activo seis meses demuestra su ROAS o rentabilidad?",
+      "expected_paths": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K02_investigacion_personas_y_evidencia_creativa.md"
+      ],
+      "top_k": 8
+    },
+    {
+      "id": "META-RAG-09",
+      "question": "¿Una miniatura permite describir el guion y audio completo de un vídeo?",
+      "expected_paths": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K03_briefs_inventario_y_brechas_creativas.md"
+      ],
+      "top_k": 8
+    },
+    {
+      "id": "META-RAG-10",
+      "question": "¿Una celda creativa vacía demuestra una brecha cuando el inventario está incompleto?",
+      "expected_paths": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K03_briefs_inventario_y_brechas_creativas.md"
+      ],
+      "top_k": 8
+    },
+    {
+      "id": "META-RAG-11",
+      "question": "¿Cómo ligar el brief y roadmap creativo a responsables, capacidad y revisión sin publicar automáticamente?",
+      "expected_paths": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K03_briefs_inventario_y_brechas_creativas.md"
+      ],
+      "top_k": 8
+    },
+    {
+      "id": "META-RAG-12",
+      "question": "¿Muchos clics y pocas visitas prueban que la landing es lenta sin medir su rendimiento?",
+      "expected_paths": [
+        "conocimiento/fase-05/01-rag-produccion/5.01-playbooks-de-adquisicion-y-diversificacion.md"
+      ],
+      "top_k": 8
+    }
+  ]
+}

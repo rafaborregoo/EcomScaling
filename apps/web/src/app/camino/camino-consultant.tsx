@@ -1,15 +1,21 @@
 "use client";
 import { LearningDecision, type LearningEdits } from "./learning-decision";
 import { MeasurementDetails, type MeasurementInfo } from "./measurement-details";
-import { DatePicker, Collapsible, CollapsibleContent, CollapsibleTrigger, IconChevronDown, Accordion, AccordionContent, AccordionItem, AccordionTrigger, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, ToggleGroup, ToggleGroupItem } from "@/components/ui";
+import { DatePicker, Collapsible, CollapsibleContent, CollapsibleTrigger, Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, IconChevronDown, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Select, ToggleGroup, ToggleGroupItem } from "@/components/ui";
 
 import { SkipForwardIcon, UnlinkIcon } from "lucide-react";
-import { buttonVariants } from "@/components/ui/button";
 import { useMemo, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { displayValue } from "@/lib/display-labels";
+import { useCachedQuery } from "@/lib/use-cached-query";
+import { useCopilotAsk } from "@/components/copilot-ask";
 import {
+  Badge,
   Button,
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
   ButtonLink,
   CheckIcon,
   Field,
@@ -18,6 +24,7 @@ import {
   MessageSquareIcon,
   MoreIcon,
   PlusIcon,
+  Progress,
   RetryIcon,
   SparklesIcon,
   toast,
@@ -32,22 +39,24 @@ import {
   AlertDialogTitle,
 } from "@/components/ui";
 import { latestMarketingAssetByTask, marketingAssetHref, marketingAssetStatusLabel, type CaminoMarketingAsset } from "@/lib/camino-marketing-assets";
+import { MILESTONE_STATE_LABEL, byUrgency, closeDate, countableTasks, criteriaList, daysUntil, filterTasks, hasProgress, isTaskLate, lateTaskAdvice, milestoneState, milestoneTitle, monthPace, planTitle, todayIn, type MilestoneState, type TaskFilter } from "./camino-desk-model";
 import { splitCriterion } from "./next-step";
-import { milestonesInMonth, type MonthlyTarget } from "./monthly-route-model";
+import { PlanVersionDrawer } from "./camino-replan";
+import { milestonesInMonth, monthToDate, monthlyTargetFor, routeStart, salesByMonth, type MonthlyTarget } from "./monthly-route-model";
 import { TRACK_LABELS, TRACK_ORDER, cadenceLabel, growthRoutines, trackLabel } from "./task-tracks";
 import { formatEffort, taskWantsEmailDraft, type PlanTaskMeta } from "./plan-task-meta";
 import { CaminoProposalDecision, type StoredCaminoProposal } from "./proposal-decision";
+import { taskOwnerLabel } from "./task-owner";
 import type { DiscussTopic } from "./camino-map";
 import c from "./camino-consultant.module.css";
 
 /**
- * Mi Camino del cliente, visto por su consultor.
+ * Mi Camino: la misma mesa para el cliente y su consultor.
  *
- * Una mesa de trabajo, no el mapa del cliente: arriba cómo va el camino en
- * cinco cifras, debajo la hoja de ruta entera (todas las fases y sus hitos a
- * la vista) y, al elegir un hito, su ficha con las tareas y las acciones del
- * consultor. Lo que no se toca a diario (meta y ruta económica, seguimiento de
- * la IA, objetivos, estructura) vive en pestañas para no alargar la página.
+ * Cada pestaña responde a una pregunta. Hoja de ruta: qué hago ahora. Ruta
+ * económica: si el plan tiene sentido. Indicadores: cómo van las cifras.
+ * Configuración: administrar el plan. Seguimiento IA: qué propone la IA. Lo
+ * técnico (criterios, razones, cálculos, medición) se abre bajo demanda.
  *
  * Solo pinta lo que trae el plan; los cambios los hace page.tsx (mutaciones y
  * formularios), que se pasan aquí como callbacks y render props.
@@ -69,6 +78,9 @@ export type ConsultantTask = {
   created_by_origin?: "consultant" | "client" | null;
   /** A quién está asignada: el consultor puede cerrar las suyas, no las del cliente. */
   assigned_to?: string | null;
+  assignee_name?: string | null;
+  assignee_origin?: "consultant" | "client" | null;
+  ignored_reason?: string | null;
   plan_meta?: PlanTaskMeta | null;
 };
 
@@ -81,9 +93,12 @@ export type ConsultantMilestone = {
   position: number;
   status: string;
   target_date: string | null;
+  deadline_date?: string | null;
+  measurement_date?: string | null;
   completed_at: string | null;
   completion_evidence?: string | null;
   completion_kind?: string | null;
+  verification_snapshot?: { open_tasks?: Array<{ title: string }> } | null;
   milestone_task_links: Array<{ tasks: ConsultantTask | null }>;
 };
 
@@ -99,6 +114,7 @@ export type ConsultantPhase = {
 type GoalUnit = "money" | "pct" | "count" | "ratio";
 
 export type ConsultantGoal = {
+  metric_key?: string;
   metric_label: string;
   unit: GoalUnit;
   baseline: number | null;
@@ -111,6 +127,7 @@ export type ConsultantGoal = {
   decision_gates?: Array<{ decision: string; proceed_when: string; hold_when: string; evidence_needed: string }>;
   confidence: "low" | "medium" | "high";
   monthly_targets?: MonthlyTarget[];
+  measured_from?: string;
 };
 
 export type ConsultantPlan = {
@@ -121,6 +138,7 @@ export type ConsultantPlan = {
   version: number;
   horizon_months?: number | null;
   starts_on: string | null;
+  replaces_plan_id?: string | null;
   goal?: ConsultantGoal | null;
 };
 
@@ -132,6 +150,7 @@ export type ConsultantObjective = {
   unit: "money" | "pct" | "count" | "ratio" | "number";
   direction: "up" | "down";
   source: string;
+  metric_key?: string;
   target_value: number;
   actual_value: number | null;
   progress_pct: number | null;
@@ -167,6 +186,13 @@ export type ConsultantReview = {
   } | null;
 };
 
+type Economics = {
+  months: Array<{ month: string; orders: number; revenue: number | null; profit: number | null; margin_pct: number | null; in_progress: boolean }>;
+  costs: { month: string | null; partial: boolean; items: Array<{ key: string; label: string; amount: number | null; included: boolean; note: string | null }> };
+  currency_compatible: boolean;
+  confidence: { level: "low" | "medium" | "high"; signals: Array<{ key: string; label: string; state: "ok" | "warn" | "missing"; detail: string }> };
+};
+
 export type DeskTab = "ruta" | "meta" | "seguimiento" | "objetivos" | "estructura";
 
 /** `?vista=` de los avisos y enlaces: los nombres viejos siguen abriendo su pestaña. Sin vista, la hoja de ruta. */
@@ -180,7 +206,6 @@ export function deskTabFrom(value: string | null): DeskTab {
 // Utilidades
 // ---------------------------------------------------------------------------
 
-const DAY_MS = 86_400_000;
 const CLOSED = ["completed", "skipped"];
 const OPEN_TASK = ["pending", "in_progress"];
 
@@ -188,6 +213,7 @@ const byPosition = <T extends { position: number }>(items: T[]) => items.slice()
 const dayMonth = new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "short", timeZone: "UTC" });
 const monthYear = new Intl.DateTimeFormat("es-ES", { month: "long", year: "numeric", timeZone: "UTC" });
 const monthShort = new Intl.DateTimeFormat("es-ES", { month: "short", timeZone: "UTC" });
+const monthLong = new Intl.DateTimeFormat("es-ES", { month: "long", timeZone: "UTC" });
 
 function asDate(value: string) {
   return new Date(`${value.slice(0, 10)}T00:00:00Z`);
@@ -195,11 +221,6 @@ function asDate(value: string) {
 
 function shortDate(value: string | null | undefined) {
   return value ? dayMonth.format(asDate(value)).replace(".", "") : "";
-}
-
-function daysUntil(value: string, today: Date) {
-  const todayUtc = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
-  return Math.round((asDate(value).getTime() - todayUtc) / DAY_MS);
 }
 
 function plural(n: number, one: string, many: string) {
@@ -210,36 +231,6 @@ function tasksOf(milestone: ConsultantMilestone) {
   return milestone.milestone_task_links.map((link) => link.tasks).filter((task): task is ConsultantTask => task !== null);
 }
 
-function isTaskLate(task: ConsultantTask, today: Date) {
-  return OPEN_TASK.includes(task.status) && task.due_at !== null && daysUntil(task.due_at, today) < 0;
-}
-
-type MilestoneState = "done" | "skipped" | "late" | "active" | "next" | "locked" | "draft";
-
-const STATE_LABEL: Record<MilestoneState, string> = {
-  done: "Completado",
-  skipped: "Omitido",
-  late: "Va tarde",
-  active: "En curso",
-  next: "Por empezar",
-  locked: "Bloqueado",
-  draft: "Previsto",
-};
-
-function milestoneState(milestone: ConsultantMilestone, phase: ConsultantPhase, planStatus: string, today: Date): MilestoneState {
-  if (planStatus === "draft") return "draft";
-  if (milestone.status === "completed") return "done";
-  if (milestone.status === "skipped") return "skipped";
-  if (phase.status !== "active" && phase.status !== "completed") return "locked";
-  if (milestone.target_date && daysUntil(milestone.target_date, today) < 0) return "late";
-  // Con tareas ya hechas el hito está en marcha aunque nadie pulsara «Empezar».
-  return milestone.status === "in_progress" || hasProgress(milestone) ? "active" : "next";
-}
-
-function hasProgress(milestone: ConsultantMilestone) {
-  return tasksOf(milestone).some((task) => task.status === "completed" || task.status === "in_progress");
-}
-
 const SOURCE_LABEL: Record<string, string> = {
   ai_consultant: "Propuesta por la IA",
   consulting_call: "De una llamada",
@@ -248,31 +239,16 @@ const SOURCE_LABEL: Record<string, string> = {
   system: "Sistema",
 };
 
-const OWNER_COUNT: Record<string, [string, string]> = {
-  client: ["del cliente", "del cliente"],
-  shared: ["compartida", "compartidas"],
-  consultant: ["tuya", "tuyas"],
-};
-
-// La misma mesa vista por el cliente: las "tuyas" son las suyas.
-const OWNER_COUNT_CLIENT: Record<string, [string, string]> = {
-  client: ["tuya", "tuyas"],
-  shared: ["compartida", "compartidas"],
-  consultant: ["del consultor", "del consultor"],
-};
-
 const PHASE_LABEL: Record<string, string> = { active: "En curso", completed: "Completada" };
 
-const OWNER: Record<string, { label: string; cls: string }> = {
-  client: { label: "Cliente", cls: c.ownClient },
-  consultant: { label: "Consultor", cls: c.ownConsultant },
-  shared: { label: "Compartida", cls: c.ownShared },
-};
+const OWNER: Record<string, string> = { client: "Cliente", consultant: "Consultor" };
 
-function ownerOf(task: ConsultantTask): keyof typeof OWNER | null {
-  if (task.plan_meta?.owner_role) return task.plan_meta.owner_role;
-  return task.created_by_origin ?? null;
-}
+const TASK_FILTERS: Array<{ value: TaskFilter; label: string }> = [
+  { value: "open", label: "Pendientes" },
+  { value: "late", label: "Vencidas" },
+  { value: "mine", label: "Mías" },
+  { value: "done", label: "Cerradas" },
+];
 
 const GOAL_STATUS: Record<string, { label: string; cls: string }> = {
   on_track: { label: "En camino", cls: c.toneGood },
@@ -281,7 +257,11 @@ const GOAL_STATUS: Record<string, { label: string; cls: string }> = {
   blocked: { label: "Bloqueado", cls: c.toneBad },
 };
 
-const CONFIDENCE: Record<string, string> = { low: "Confianza baja", medium: "Confianza media", high: "Confianza alta" };
+const CONFIDENCE: Record<string, string> = { low: "confianza baja", medium: "confianza media", high: "confianza alta" };
+const DATA_LEVEL: Record<string, string> = { low: "baja", medium: "media", high: "alta" };
+const DATA_LEVEL_TONE: Record<string, "success" | "warn" | "danger"> = { high: "success", medium: "warn", low: "danger" };
+const SIGNAL_MARK: Record<string, string> = { ok: "Cubierto", warn: "Incompleto", missing: "Falta" };
+const SIGNAL_TONE: Record<string, "success" | "warn" | "danger"> = { ok: "success", warn: "warn", missing: "danger" };
 
 function Bar({ value, tone = "blue" }: { value: number; tone?: "blue" | "green" | "terra" | "red" }) {
   return (
@@ -291,16 +271,7 @@ function Bar({ value, tone = "blue" }: { value: number; tone?: "blue" | "green" 
   );
 }
 
-function LockGlyph() {
-  return (
-    <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-      <rect x="3.5" y="7" width="9" height="7" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  );
-}
-
-function ActionMenu({
+export function ActionMenu({
   label,
   items,
   onAction,
@@ -337,6 +308,7 @@ export function ConsultantCamino({
   phases: rawPhases,
   organizationName,
   viewerIsClient = false,
+  replanDraft = null,
   storeName,
   objectives,
   reviews,
@@ -351,9 +323,13 @@ export function ConsultantCamino({
   onActivate,
   isActivating,
   onToggleTask,
+  onDiscardTask,
+  onReopenTask,
+  onAssignTask,
   onGenerateMarketingTask,
   onStartMilestone,
   onCompleteMilestone,
+  onCloseByException,
   onReopenMilestone,
   onSkipMilestone,
   onRemoveTask,
@@ -363,6 +339,9 @@ export function ConsultantCamino({
   onApproveLearning,
   onProposalUpdated,
   organizationId,
+  connectionId,
+  currency,
+  storeTimezone,
   renderMilestoneEditor,
   renderAddTask,
   renderTaskEditor,
@@ -370,12 +349,15 @@ export function ConsultantCamino({
   objectivesSlot,
   structureSlot,
   settingsSlot,
+  dangerSlot,
 }: {
   plan: ConsultantPlan;
   phases: ConsultantPhase[];
   organizationName: string;
   /** El cliente ve la misma mesa; cambia el texto según quién mira. */
   viewerIsClient?: boolean;
+  /** Propuesta de A19 sin revisar: el Camino no cambia hasta confirmarla. */
+  replanDraft?: { generated_at: string } | null;
   storeName: string | null;
   objectives: ConsultantObjective[];
   reviews: ConsultantReview[];
@@ -390,9 +372,13 @@ export function ConsultantCamino({
   onActivate: () => void;
   isActivating: boolean;
   onToggleTask: (task: ConsultantTask) => void;
+  onDiscardTask: (task: ConsultantTask, reason: string) => Promise<unknown>;
+  onReopenTask: (task: ConsultantTask) => void;
+  onAssignTask: (task: ConsultantTask, userId: string | null) => void;
   onGenerateMarketingTask: (task: ConsultantTask) => void;
   onStartMilestone: (milestoneId: string) => Promise<unknown>;
   onCompleteMilestone: (milestoneId: string) => void;
+  onCloseByException: (milestoneId: string) => void;
   onReopenMilestone: (milestoneId: string) => Promise<unknown>;
   onSkipMilestone: (milestoneId: string) => Promise<unknown>;
   onRemoveTask: (milestoneId: string, taskId: string) => Promise<unknown>;
@@ -402,6 +388,11 @@ export function ConsultantCamino({
   onApproveLearning: (reviewId: string, learningIndex: number, edits?: LearningEdits) => Promise<void>;
   onProposalUpdated: () => void;
   organizationId: string;
+  connectionId: string | null;
+  /** Moneda de los importes guardados: las ventas solo se comparan con la meta si coincide. */
+  currency: string;
+  /** Las fechas se leen en la hora de la tienda. */
+  storeTimezone: string | null;
   renderMilestoneEditor: (milestoneId: string, close: () => void) => ReactNode;
   renderAddTask: (milestoneId: string, close: () => void) => ReactNode;
   renderTaskEditor: (milestoneId: string, taskId: string, close: () => void) => ReactNode;
@@ -409,8 +400,11 @@ export function ConsultantCamino({
   objectivesSlot: ReactNode;
   structureSlot: ReactNode;
   settingsSlot: ReactNode;
+  dangerSlot: ReactNode;
 }) {
-  const [today] = useState(() => new Date());
+  const [today] = useState(() => todayIn(storeTimezone));
+  const copilot = useCopilotAsk();
+  const askAi = (question: string, focusLabel: string) => copilot({ question, focusLabel });
   // La sección y el hito abiertos viven en la URL (?vista=&hito=).
   const router = useRouter();
   const pathname = usePathname();
@@ -433,10 +427,10 @@ export function ConsultantCamino({
     () =>
       phases.flatMap((phase, pi) =>
         byPosition(phase.strategic_plan_milestones).map((milestone, mi) => ({
-          milestone,
+          milestone: { ...milestone, name: milestoneTitle(milestone.name) },
           phase,
           code: `${pi + 1}.${mi + 1}`,
-          state: milestoneState(milestone, phase, plan.status, today),
+          state: milestoneState(milestone, phase.status, plan.status, today),
         })),
       ),
     [phases, plan.status, today],
@@ -459,7 +453,23 @@ export function ConsultantCamino({
   const pendingProposals = (latest?.proposals ?? []).filter((proposal) => proposal.status === "pending").length;
   const goal = plan.goal ?? null;
   const observed = latest?.output?.goal_progress.observed_value ?? null;
+  // Ventas reales contra la meta, desde que empezó el camino.
+  const salesDays = plan.starts_on ? Math.min(3650, Math.max(31, daysUntil(today.toISOString(), asDate(plan.starts_on)) + 2)) : 31;
+  const sales = useCachedQuery<{ daily: Array<{ date: string; net_sales: number }>; currency_code?: string | null }>(
+    goal?.metric_key === "net_sales"
+      ? `/v1/organizations/${organizationId}/shopify/metrics?days=${salesDays}${connectionId ? `&connectionId=${encodeURIComponent(connectionId)}` : ""}`
+      : null,
+  );
+  const salesData = sales.data && sales.data.currency_code === currency ? sales.data.daily : null;
+  const monthSales = salesData ? monthToDate(salesData, today) : null;
+  const monthActuals = useMemo(() => (salesData ? salesByMonth(salesData, plan.goal?.measured_from ?? plan.starts_on ?? "0000") : null), [salesData, plan.starts_on]);
+  const heading = planTitle(plan.name);
+  const margins = objectives.filter((objective) => objective.metric_key === "net_margin_pct");
+  const margin = margins.find((objective) => !objective.milestone_id) ?? margins[0] ?? null;
+  const economics = useCachedQuery<Economics>(tab === "meta" && goal ? `/v1/organizations/${organizationId}/strategic-plan/${plan.id}/economics` : null);
+  const assignees = useCachedQuery<{ assignees: Array<{ id: string; name: string }> }>(tab === "ruta" && canManage ? `/v1/organizations/${organizationId}/task-assignees` : null);
 
+  // Con una fase en curso lo dice la hoja de ruta; esto cubre los demás estados.
   const summary =
     plan.status === "draft"
       ? viewerIsClient
@@ -469,22 +479,39 @@ export function ConsultantCamino({
         ? closedMilestones === stops.length && stops.length > 0
           ? "Recorrido cerrado. El resultado del objetivo se comprueba por separado."
           : "Ninguna fase está en curso."
-        : `${viewerIsClient ? "Estás" : `${organizationName} está`} en la fase ${activePhase.position} de ${phases.length}, «${activePhase.name}».`;
+        : null;
 
   const tabs: Array<{ key: DeskTab; label: string; count?: number }> = [
     { key: "ruta", label: "Hoja de ruta" },
-    { key: "meta", label: "Meta y ruta económica" },
+    { key: "meta", label: "Ruta económica" },
+    { key: "objetivos", label: "Indicadores" },
+    { key: "estructura", label: "Configuración" },
     { key: "seguimiento", label: "Seguimiento IA", count: pendingProposals },
-    { key: "objetivos", label: "Objetivos" },
-    { key: "estructura", label: "Estructura y ajustes" },
   ];
 
   function pick(stop: Stop) {
     go("ruta", stop.milestone.id);
   }
 
+  function setMarginObjective() {
+    const query = new URLSearchParams(params);
+    query.set("vista", "objetivos");
+    query.set("objetivo", "net_margin_pct");
+    query.delete("hito");
+    router.push(`${pathname}?${query.toString()}`, { scroll: false });
+  }
+
   return (
     <div className={c.root}>
+      {replanDraft && canManage ? (
+        <Alert>
+          <AlertTitle>A19 ha preparado una propuesta para replanificar este Camino</AlertTitle>
+          <AlertDescription>Revisa qué cambia y decide qué aceptas. Tu Camino no cambia hasta que confirmes.</AlertDescription>
+          <AlertAction>
+            <ButtonLink href="/camino/nuevo?replan=1&revisar=1" size="sm">Revisar propuesta</ButtonLink>
+          </AlertAction>
+        </Alert>
+      ) : null}
       {/* ---------- cabecera ---------- */}
       <header className={c.head}>
         <div className={c.headMain}>
@@ -493,26 +520,35 @@ export function ConsultantCamino({
             <span>{organizationName}</span>
             {storeName ? <span>{storeName}</span> : null}
           </p>
-          <h1 className={c.title}>{plan.name}</h1>
+          <h1 className={c.title}>{heading.title}</h1>
           <div className={c.chips}>
             <span className={`${c.pill} ${plan.status === "active" ? c.pillGood : plan.status === "draft" ? c.pillWarn : ""}`}>
-              {plan.status === "active" ? "Activo" : displayValue(plan.status)}
+              {plan.status === "active" ? "En curso" : displayValue(plan.status)}
             </span>
-            <span className={c.pill}>Versión {plan.version}</span>
-            {plan.horizon_months ? <span className={c.pill}>{plural(plan.horizon_months, "mes", "meses")}</span> : null}
-            {plan.starts_on ? <span className={c.pill}>Desde el {shortDate(plan.starts_on)}</span> : null}
+            {heading.prefix ? <span className={c.muted}>{heading.prefix}</span> : null}
           </div>
-          <p className={c.lead}>{summary}</p>
+          {summary ? <p className={c.lead}>{summary}</p> : null}
         </div>
-        <div className={c.headActs}>
+        <div className={c.headSide}>
+          {goal ? (
+            <GoalStrip
+              goal={goal}
+              startsOn={plan.starts_on}
+              today={today}
+              monthSales={monthSales}
+              observed={observed}
+              margin={margin}
+              formatGoal={formatGoal}
+              formatObjective={formatObjective}
+              onSetMargin={canManage ? setMarginObjective : null}
+              compact={tab === "estructura"}
+            />
+          ) : null}
           {plan.status === "draft" ? (
             <Button onClick={onActivate} disabled={isActivating}>
               {isActivating ? "Activando…" : "Activar camino"}
             </Button>
           ) : null}
-          <Button variant="secondary" onClick={() => go("estructura")}>
-            Estructura y ajustes
-          </Button>
         </div>
       </header>
 
@@ -527,14 +563,13 @@ export function ConsultantCamino({
 
       {tab === "ruta" ? (
         <>
-          <Roadmap phases={phases} stops={stops} selectedId={selected?.milestone.id ?? null} focusId={focus?.milestone.id ?? null} today={today} planStatus={plan.status} goal={goal} formatGoal={formatGoal} onPick={pick} />
+          <Roadmap phases={phases} stops={stops} selected={selected} today={today} planStatus={plan.status} onPick={pick} />
           {selected ? (
             <MilestoneDesk
               key={selected.milestone.id}
               stop={selected}
               today={today}
               planStatus={plan.status}
-              isFocus={selected.milestone.id === focus?.milestone.id}
               objectives={objectives.filter((objective) => objective.milestone_id === selected.milestone.id)}
               formatObjective={formatObjective}
               canResolveTasks={canResolveTasks}
@@ -542,10 +577,16 @@ export function ConsultantCamino({
               currentUserId={currentUserId}
               marketingByTask={marketingByTask}
               generatingTaskId={generatingTaskId}
+              assignees={assignees.data?.assignees ?? []}
               onToggleTask={onToggleTask}
+              onDiscardTask={onDiscardTask}
+              onReopenTask={onReopenTask}
+              onAssignTask={onAssignTask}
+              onAskAi={askAi}
               onGenerateMarketingTask={onGenerateMarketingTask}
               onStart={() => onStartMilestone(selected.milestone.id)}
               onComplete={() => onCompleteMilestone(selected.milestone.id)}
+              onCloseByException={() => onCloseByException(selected.milestone.id)}
               onReopen={() => onReopenMilestone(selected.milestone.id)}
               onSkip={() => onSkipMilestone(selected.milestone.id)}
               onRemoveTask={(taskId) => onRemoveTask(selected.milestone.id, taskId)}
@@ -558,13 +599,13 @@ export function ConsultantCamino({
               viewerIsClient={viewerIsClient}
             />
           ) : (
-            <p className={c.empty}>Este camino aún no tiene hitos. Añádelos en «Estructura y ajustes».</p>
+            <p className={c.empty}>Este camino aún no tiene hitos. Añádelos en «Configuración».</p>
           )}
           <Tracks tasks={allTasks} />
         </>
       ) : null}
 
-      {tab === "meta" ? <GoalDesk goal={goal} startsOn={plan.starts_on} stops={stops} observed={observed} formatGoal={formatGoal} canManage={canManage} onChangeGoal={onChangeGoal} today={today} /> : null}
+      {tab === "meta" ? <GoalDesk goal={goal} startsOn={plan.starts_on} stops={stops} observed={observed} monthActuals={monthActuals} margin={margin} economics={economics.data ?? null} economicsFailed={Boolean(economics.error)} formatGoal={formatGoal} formatObjective={formatObjective} canManage={canManage} onChangeGoal={onChangeGoal} onAskAi={askAi} today={today} /> : null}
 
       {tab === "seguimiento" ? (
         <ReviewDesk
@@ -587,6 +628,7 @@ export function ConsultantCamino({
         <div className={c.slot}>
           {settingsSlot}
           {structureSlot}
+          {dangerSlot}
         </div>
       ) : null}
     </div>
@@ -594,118 +636,182 @@ export function ConsultantCamino({
 }
 
 // ---------------------------------------------------------------------------
-// Hoja de ruta: todas las fases y sus hitos a la vista
+// Meta: cómo va el mes y si se protege el margen
 // ---------------------------------------------------------------------------
 
-function Roadmap({
-  phases,
-  stops,
-  selectedId,
-  focusId,
-  today,
-  planStatus,
+function GoalStrip({
   goal,
+  startsOn,
+  today,
+  monthSales,
+  observed,
+  margin,
   formatGoal,
-  onPick,
+  formatObjective,
+  onSetMargin,
+  compact,
 }: {
-  phases: ConsultantPhase[];
-  stops: Stop[];
-  selectedId: string | null;
-  focusId: string | null;
+  goal: ConsultantGoal;
+  startsOn: string | null;
   today: Date;
-  planStatus: string;
-  goal: ConsultantGoal | null;
+  monthSales: number | null;
+  observed: number | null;
+  margin: ConsultantObjective | null;
   formatGoal: (value: number) => string;
-  onPick: (stop: Stop) => void;
+  formatObjective: (value: number, unit: ConsultantObjective["unit"]) => string;
+  onSetMargin: (() => void) | null;
+  compact: boolean;
 }) {
-  if (!phases.length) return null;
+  const route = startsOn ? monthlyTargetFor(routeStart(startsOn, goal.monthly_targets ?? []), goal.monthly_targets ?? [], today) : null;
+  const target = route?.target_value ?? goal.target;
+  if (target === null) return null;
+  const short = (value: number) => formatGoal(value).replace(/,00(?=\s|$)/, "");
+  const actual = monthSales ?? observed;
+  const pct = monthSales !== null && target > 0 ? (monthSales / target) * 100 : null;
+  const reached = margin?.status === "cumplido";
+  const period = margin?.measurement?.period_label?.split(" · ")[0];
   return (
-    <section className={c.roadmap} aria-label="Hoja de ruta">
-      <div className={c.track} style={{ gridTemplateColumns: `repeat(${phases.length}, minmax(232px, 1fr)) minmax(168px, 0.6fr)` }}>
-        {phases.map((phase, index) => {
-          const own = stops.filter((stop) => stop.phase.id === phase.id);
-          const closed = own.filter((stop) => CLOSED.includes(stop.milestone.status)).length;
-          const state = planStatus === "draft" ? "draft" : phase.status === "completed" ? "done" : phase.status === "active" ? "active" : "locked";
-          return (
-            <div key={phase.id} className={`${c.phase} ${c[`phase_${state}`]}`}>
-              <div className={c.phaseHead}>
-                <span className={c.phaseNum}>{state === "done" ? <CheckIcon aria-hidden /> : index + 1}</span>
-                <div className={c.phaseText}>
-                  <span className={c.phaseKicker}>
-                    Fase {index + 1} · {state === "draft" ? "Prevista" : (PHASE_LABEL[phase.status] ?? "Bloqueada")}
-                  </span>
-                  <h3 className={c.clamp2}>{phase.name}</h3>
-                </div>
-              </div>
-              <div className={c.phaseProg}>
-                <Bar value={own.length ? (closed / own.length) * 100 : 0} tone={state === "done" ? "green" : "blue"} />
-                <span>
-                  {closed}/{own.length} hitos
-                </span>
-              </div>
-              <ol className={c.stops}>
-                {own.map((stop) => {
-                  const tasks = tasksOf(stop.milestone);
-                  const done = tasks.filter((task) => task.status === "completed").length;
-                  const days = stop.milestone.target_date ? daysUntil(stop.milestone.target_date, today) : null;
-                  return (
-                    <li key={stop.milestone.id}>
-                      <button
-                        type="button"
-                        className={`${c.stop} task-lift ${c[`st_${stop.state}`]} ${stop.milestone.id === selectedId ? c.stopOn : ""}`}
-                        aria-pressed={stop.milestone.id === selectedId}
-                        onClick={() => onPick(stop)}
-                      >
-                        <span className={c.stopTop}>
-                          <span className={c.code}>{stop.code}</span>
-                          {stop.milestone.id === focusId ? <span className={c.now}>Ahora</span> : null}
-                          <span className={c.stopState}>
-                            {stop.state === "locked" ? <LockGlyph /> : null}
-                            {stop.state === "late" && days !== null ? `${-days} d tarde` : STATE_LABEL[stop.state]}
-                          </span>
-                        </span>
-                        <span className={`${c.stopName} ${c.clamp3}`}>{stop.milestone.name}</span>
-                        <span className={c.stopFoot}>
-                          <Bar value={tasks.length ? (done / tasks.length) * 100 : 0} tone={stop.state === "done" ? "green" : stop.state === "late" ? "red" : "blue"} />
-                          <span>
-                            {done}/{tasks.length}
-                          </span>
-                          {stop.milestone.target_date ? <span className={c.stopDate}>{shortDate(stop.milestone.target_date)}</span> : null}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-                {own.length === 0 ? <li className={c.stopEmpty}>Sin hitos</li> : null}
-              </ol>
-            </div>
-          );
-        })}
-        <div className={c.finish}>
-          <span className={c.finishFlag} aria-hidden="true">
-            <svg viewBox="0 0 16 16" width="14" height="14">
-              <path d="M3.5 14V2.5M3.5 3h8l-1.8 2.8L11.5 8.5h-8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-            </svg>
-          </span>
-          <span className={c.phaseKicker}>Meta</span>
-          <strong>{goal?.target != null ? formatGoal(goal.target) : "Sin cifra"}</strong>
-          <span className={c.clamp3}>{goal?.metric_label ?? "El camino no tiene meta cuantificada"}</span>
-          {goal?.target_date ? <span className={c.stopDate}>{shortDate(goal.target_date)}</span> : null}
-        </div>
+    <section className={`${c.goalStrip} ${compact ? c.goalCompact : ""}`} aria-label="Meta del camino">
+      <div className={c.goalCell}>
+        {/* La etiqueta de A19 ya trae el mes («Ventas netas Shopify durante noviembre de 2026»). */}
+        <span className={c.noteL}>{route && goal.metric_key === "net_sales" ? `${monthLong.format(Date.UTC(today.getFullYear(), today.getMonth(), 1))} · Ventas netas` : goal.metric_label}</span>
+        <strong>
+          {actual !== null ? short(actual) : "—"} <small>de {short(target)}</small>
+        </strong>
+        {pct !== null ? <Bar value={pct} tone={pct >= 100 ? "green" : "blue"} /> : null}
+        <span className={c.muted}>
+          {pct === null
+            ? actual !== null ? "Según la última revisión" : "Aún sin medir"
+            : pct >= 100 ? "Meta del mes alcanzada" : `${Math.round(pct)} % · faltan ${short(target - monthSales!)}`}
+        </span>
+      </div>
+      <div className={c.goalCell}>
+        <span className={c.noteL}>
+          {margin?.label ?? "Margen neto"}
+          {period ? ` · ${period}` : ""}
+        </span>
+        {margin ? (
+          <>
+            <strong>
+              {margin.actual_value !== null ? formatObjective(margin.actual_value, margin.unit) : "—"} <small>meta ≥ {formatObjective(margin.target_value, margin.unit)}</small>
+            </strong>
+            <span className={margin.actual_value === null ? c.muted : reached ? c.textGreen : c.textBad}>
+              {margin.actual_value === null ? "Sin datos fiables" : reached ? "En la meta" : "Por debajo de la meta"}
+            </span>
+          </>
+        ) : (
+          <>
+            <strong>—</strong>
+            {onSetMargin ? (
+              <button type="button" className={c.linkBtn} onClick={onSetMargin}>
+                Fijar objetivo de margen
+              </button>
+            ) : (
+              <span className={c.muted}>Sin objetivo</span>
+            )}
+          </>
+        )}
       </div>
     </section>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Ficha del hito: lo que hay que lograr, sus tareas y las acciones
+// Hoja de ruta: las fases en una línea y los hitos de la fase elegida
+// ---------------------------------------------------------------------------
+
+function Roadmap({
+  phases,
+  stops,
+  selected,
+  today,
+  planStatus,
+  onPick,
+}: {
+  phases: ConsultantPhase[];
+  stops: Stop[];
+  selected: Stop | null;
+  today: Date;
+  planStatus: string;
+  onPick: (stop: Stop) => void;
+}) {
+  if (!phases.length) return null;
+  const current = selected?.phase ?? phases[0]!;
+  const currentIndex = phases.findIndex((phase) => phase.id === current.id);
+  const inPhase = stops.filter((stop) => stop.phase.id === current.id);
+  const closedHere = inPhase.filter((stop) => CLOSED.includes(stop.milestone.status)).length;
+  return (
+    <section className={c.roadmap} aria-label="Hoja de ruta">
+      <ol className={c.steps}>
+        {phases.map((phase, index) => {
+          const own = stops.filter((stop) => stop.phase.id === phase.id);
+          const closed = own.filter((stop) => CLOSED.includes(stop.milestone.status)).length;
+          const late = own.flatMap((stop) => tasksOf(stop.milestone)).filter((task) => isTaskLate(task, today)).length;
+          const state = planStatus === "draft" ? "draft" : phase.status === "completed" ? "done" : phase.status === "active" ? "active" : "locked";
+          // Al elegir una fase se abre lo primero que quede por hacer en ella.
+          const entry = own.find((stop) => !CLOSED.includes(stop.milestone.status)) ?? own[0];
+          return (
+            <li key={phase.id}>
+              <button type="button" className={`${c.step} ${c[`step_${state}`]}`} aria-pressed={phase.id === current.id} disabled={!entry} onClick={() => entry && onPick(entry)}>
+                <span className={c.phaseNum}>{state === "done" ? <CheckIcon aria-hidden /> : index + 1}</span>
+                <span className={c.stepText}>
+                  <b className={c.clamp2}>{phase.name}</b>
+                  <small>
+                    {state === "draft" ? "Prevista" : (PHASE_LABEL[phase.status] ?? "Pendiente")}
+                    {own.length ? ` · ${closed}/${own.length} hitos` : " · Sin hitos"}
+                    {late ? <span className={c.textBad}> · {plural(late, "vencida", "vencidas")}</span> : null}
+                  </small>
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+      {inPhase.length ? (
+        <div className={c.phaseRow}>
+          <div className={c.phaseBar}>
+            <h2>Hitos de la fase {currentIndex + 1}</h2>
+            <span className={c.muted}>
+              {closedHere} de {plural(inPhase.length, "completado", "completados")}
+            </span>
+          </div>
+          <ol className={c.stops}>
+            {inPhase.map((stop) => {
+              const tasks = countableTasks(tasksOf(stop.milestone));
+              const done = tasks.filter((task) => task.status === "completed").length;
+              const stopClose = closeDate(stop.milestone);
+              const days = stopClose ? daysUntil(stopClose, today) : null;
+              const isOn = stop.milestone.id === selected?.milestone.id;
+              return (
+                <li key={stop.milestone.id}>
+                  <button type="button" className={`${c.stop} ${c[`st_${stop.state}`]} ${isOn ? c.stopOn : ""}`} aria-pressed={isOn} onClick={() => onPick(stop)}>
+                    <span className={c.stopTop}>
+                      <span className={c.code}>{stop.code}</span>
+                      <span className={c.stopState}>{stop.state === "late" && days !== null ? `${-days} d tarde` : MILESTONE_STATE_LABEL[stop.state]}</span>
+                    </span>
+                    <span className={`${c.stopName} ${c.clamp3}`}>{stop.milestone.name}</span>
+                    <span className={c.stopFoot}>
+                      {[`${done}/${tasks.length} tareas`, shortDate(stopClose)].filter(Boolean).join(" · ")}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Ficha del hito: qué falta por hacer; el porqué, bajo demanda
 // ---------------------------------------------------------------------------
 
 function MilestoneDesk({
   stop,
   today,
   planStatus,
-  isFocus,
   objectives,
   formatObjective,
   canResolveTasks,
@@ -713,10 +819,16 @@ function MilestoneDesk({
   currentUserId,
   marketingByTask,
   generatingTaskId,
+  assignees,
   onToggleTask,
+  onDiscardTask,
+  onReopenTask,
+  onAssignTask,
+  onAskAi,
   onGenerateMarketingTask,
   onStart,
   onComplete,
+  onCloseByException,
   onReopen,
   onSkip,
   onRemoveTask,
@@ -731,7 +843,6 @@ function MilestoneDesk({
   stop: Stop;
   today: Date;
   planStatus: string;
-  isFocus: boolean;
   objectives: ConsultantObjective[];
   formatObjective: (value: number, unit: ConsultantObjective["unit"]) => string;
   canResolveTasks: boolean;
@@ -739,10 +850,16 @@ function MilestoneDesk({
   currentUserId: string;
   marketingByTask: Map<string, CaminoMarketingAsset>;
   generatingTaskId: string | null;
+  assignees: Array<{ id: string; name: string }>;
   onToggleTask: (task: ConsultantTask) => void;
+  onDiscardTask: (task: ConsultantTask, reason: string) => Promise<unknown>;
+  onReopenTask: (task: ConsultantTask) => void;
+  onAssignTask: (task: ConsultantTask, userId: string | null) => void;
+  onAskAi: (question: string, focusLabel: string) => void;
   onGenerateMarketingTask: (task: ConsultantTask) => void;
   onStart: () => Promise<unknown>;
   onComplete: () => void;
+  onCloseByException: () => void;
   onReopen: () => Promise<unknown>;
   onSkip: () => Promise<unknown>;
   onRemoveTask: (taskId: string) => Promise<unknown>;
@@ -754,29 +871,46 @@ function MilestoneDesk({
   notes: ReactNode;
   viewerIsClient: boolean;
 }) {
-  const { milestone, phase, code, state } = stop;
+  const { milestone, code, state } = stop;
   const [editing, setEditing] = useState(false);
   const [addingTask, setAddingTask] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [skipOpen, setSkipOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"open" | "all">("all");
+  const [filter, setFilter] = useState<TaskFilter>("open");
+  const [discardingTask, setDiscardingTask] = useState<ConsultantTask | null>(null);
 
   const { text, criterion: descriptionCriterion } = splitCriterion(milestone.description);
   const criterion = milestone.success_criteria?.trim() || descriptionCriterion;
+  const criteria = criterion ? criteriaList(criterion) : [];
   const tasks = tasksOf(milestone);
-  const done = tasks.filter((task) => task.status === "completed").length;
-  const open = tasks.filter((task) => OPEN_TASK.includes(task.status));
-  const shown = filter === "open" ? open : tasks;
-  const days = milestone.target_date ? daysUntil(milestone.target_date, today) : null;
-  const owners = (["client", "shared", "consultant"] as const)
-    .map((owner) => ({ owner, n: open.filter((task) => ownerOf(task) === owner).length }))
-    .filter((entry) => entry.n > 0);
+  const counted = countableTasks(tasks);
+  const done = counted.filter((task) => task.status === "completed").length;
+  const open = byUrgency(tasks.filter((task) => OPEN_TASK.includes(task.status)));
+  const lateTasks = open.filter((task) => isTaskLate(task, today)).length;
+  const countOf = (value: TaskFilter) => filterTasks(tasks, value, currentUserId, today).length;
+  const shown = filter === "done" ? filterTasks(tasks, "done", currentUserId, today) : filterTasks(open, filter, currentUserId, today);
+  const next = open[0] ?? null;
+  const nextDays = next?.due_at ? daysUntil(next.due_at, today) : null;
+  const nextReason = next?.due_at
+    ? nextDays! < 0
+      ? `Venció el ${shortDate(next.due_at)}`
+      : nextDays === 0
+        ? "Vence hoy"
+        : `Vence el ${shortDate(next.due_at)}, es la siguiente en fecha`
+    : "Es la primera tarea pendiente";
+  const closeAt = closeDate(milestone);
+  const days = closeAt ? daysUntil(closeAt, today) : null;
 
   const closed = CLOSED.includes(milestone.status);
   const locked = state === "locked";
   const draft = planStatus === "draft";
   const canChangeStatus = canManage && !draft && !locked;
+  const tickHint = draft
+    ? "Se marca cuando el camino esté activo"
+    : viewerIsClient
+      ? "La marca el responsable de la tienda"
+      : "La marca el cliente";
 
   const due =
     state === "done"
@@ -785,13 +919,19 @@ function MilestoneDesk({
         : "Completado"
       : state === "skipped"
         ? "Omitido"
-        : milestone.target_date
+        : closeAt
           ? days! < 0
-            ? `Vencía el ${shortDate(milestone.target_date)} · ${plural(-days!, "día", "días")} de retraso`
+            ? `Vencía el ${shortDate(closeAt)} · ${plural(-days!, "día", "días")} de retraso`
             : days === 0
               ? "Vence hoy"
-              : `Vence el ${shortDate(milestone.target_date)} · quedan ${plural(days!, "día", "días")}`
+              : `Vence el ${shortDate(closeAt)} · quedan ${plural(days!, "día", "días")}`
           : "Sin fecha objetivo";
+  const dates = [
+    milestone.target_date ? `Objetivo: ${shortDate(milestone.target_date)}` : null,
+    milestone.deadline_date ? `Límite: ${shortDate(milestone.deadline_date)}` : null,
+    milestone.measurement_date ? `Medición: ${shortDate(milestone.measurement_date)}` : null,
+  ].filter(Boolean);
+  const openAtClose = milestone.verification_snapshot?.open_tasks ?? [];
 
   async function run(key: string, action: () => Promise<unknown>) {
     setBusy(key);
@@ -803,10 +943,43 @@ function MilestoneDesk({
   }
 
   const menu = [
-    ...(canManage ? [{ id: "edit", label: "Editar nombre, descripción y fecha" }] : []),
+    ...(canManage ? [{ id: "edit", label: "Editar nombre, descripción y fechas" }] : []),
     { id: "objectives", label: "Métricas y objetivos del hito" },
+    ...(canChangeStatus && !closed && open.length ? [{ id: "exception", label: "Cerrar por excepción" }] : []),
     ...(canChangeStatus && !closed ? [{ id: "skip", label: "Omitir hito", danger: true }] : []),
   ];
+  const onMenu = (id: string) => {
+    if (id === "edit") setEditing(true);
+    else if (id === "objectives") onOpenObjectives();
+    else if (id === "exception") onCloseByException();
+    else setSkipOpen(true);
+  };
+
+  const row = (task: ConsultantTask) => (
+    <TaskRow
+      key={task.id}
+      task={task}
+      today={today}
+      canTick={(canResolveTasks || (Boolean(task.assigned_to) && task.assigned_to === currentUserId)) && !draft}
+      tickHint={tickHint}
+      canManage={canManage}
+      viewerIsClient={viewerIsClient}
+      currentUserId={currentUserId}
+      asset={marketingByTask.get(task.id) ?? null}
+      generating={generatingTaskId === task.id}
+      milestoneClose={closeAt}
+      assignees={assignees}
+      onToggle={() => onToggleTask(task)}
+      onDiscard={() => setDiscardingTask(task)}
+      onReopen={() => onReopenTask(task)}
+      onAssign={(userId) => onAssignTask(task, userId)}
+      onAskAi={onAskAi}
+      onGenerate={() => onGenerateMarketingTask(task)}
+      onEdit={() => setEditingTaskId(task.id)}
+      onRemove={() => onRemoveTask(task.id)}
+      editor={editingTaskId === task.id ? renderTaskEditor(task.id, () => setEditingTaskId(null)) : null}
+    />
+  );
 
   return (
     <section id="camino-ficha" className={c.desk} aria-labelledby={`ficha-${milestone.id}`}>
@@ -816,18 +989,11 @@ function MilestoneDesk({
       <div className={c.deskHead}>
         <div className={c.deskTitle}>
           <span className={c.deskKicker}>
-            <span className={c.code}>Hito {code}</span>
-            <span>Fase {code.split(".")[0]} · {phase.name}</span>
+            <span>Fase {code.split(".")[0]} · Hito {code}</span>
+            <span className={`${c.state} ${c[`st_${state}`]}`}>{MILESTONE_STATE_LABEL[state]}</span>
           </span>
           <h2 id={`ficha-${milestone.id}`}>{milestone.name}</h2>
-          <span className={c.deskMeta}>
-            <span className={`${c.state} ${c[`st_${state}`]}`}>
-              {locked ? <LockGlyph /> : null}
-              {STATE_LABEL[state]}
-            </span>
-            <span className={state === "late" ? c.textBad : undefined}>{due}</span>
-            {isFocus ? <span className={c.now}>Hito de ahora</span> : null}
-          </span>
+          {text ? <p className={`${c.deskLead} ${c.clamp2}`}>{text}</p> : null}
         </div>
         <div className={c.deskActs}>
           {canChangeStatus && milestone.status === "pending" && !hasProgress(milestone) ? (
@@ -835,8 +1001,9 @@ function MilestoneDesk({
               {busy === "start" ? "Empezando…" : "Empezar hito"}
             </Button>
           ) : null}
-          {canChangeStatus && !closed ? (
-            <Button size="sm" disabled={busy !== null || open.length > 0} onClick={onComplete} title={open.length ? "Se completa cuando todas sus tareas están hechas" : undefined}>
+          {/* Solo aparece cuando se puede usar: lo que falta ya lo dice el contador. */}
+          {canChangeStatus && !closed && !open.length ? (
+            <Button size="sm" disabled={busy !== null} onClick={onComplete}>
               Completar hito
             </Button>
           ) : null}
@@ -858,7 +1025,7 @@ function MilestoneDesk({
           <ActionMenu
             label={`Más acciones del hito ${code}`}
             items={menu}
-            onAction={(id) => (id === "edit" ? setEditing(true) : id === "objectives" ? onOpenObjectives() : setSkipOpen(true))}
+            onAction={onMenu}
           />
           <AlertDialog open={skipOpen} onOpenChange={setSkipOpen}>
             <AlertDialogContent>
@@ -886,32 +1053,89 @@ function MilestoneDesk({
           </AlertDialog>
         </div>
       </div>
-      {canChangeStatus && !closed && open.length ? (
-        <p className={c.readiness}>
-          Para completarlo {open.length === 1 ? "falta" : "faltan"} {plural(open.length, "tarea", "tareas")}. Al cerrarlo se pide la evidencia del resultado.
-        </p>
-      ) : null}
-      {locked ? <p className={c.readiness}>Se abre cuando termine la fase anterior. Puedes preparar sus tareas desde ya.</p> : null}
-      {editing ? <div className={c.inline}>{renderEditor(() => setEditing(false))}</div> : null}
 
-      <div className={c.deskGrid}>
-        <div className={c.deskCol}>
-          {text ? <p className={c.deskDesc}>{text}</p> : null}
-          {milestone.status === "completed" && milestone.completion_evidence ? (
-            <div className={`${c.note} ${c.noteGood}`}>
-              <span className={c.noteL}>{milestone.completion_kind === "exception" ? "Cierre por excepción" : milestone.completion_kind ? "Resultado verificado" : "Cierre anterior sin verificación estructurada"}</span>
-              <p>{milestone.completion_evidence}</p>
-            </div>
+      <div className={c.deskProgress}>
+        <div className={c.deskProgressTop}>
+          <span className={state === "late" ? c.textBad : undefined}>{due}</span>
+          {counted.length ? (
+            <span>
+              {done} de {plural(counted.length, "tarea", "tareas")}
+              {lateTasks ? <b className={c.textBad}> · {plural(lateTasks, "vencida", "vencidas")}</b> : null}
+            </span>
           ) : null}
-          {milestone.rationale?.trim() ? (
-            <div className={c.note}>
-              <span className={c.noteL}>Por qué ahora</span>
-              <p>{milestone.rationale}</p>
-            </div>
+        </div>
+        <Bar value={counted.length ? (done / counted.length) * 100 : 0} tone={state === "done" ? "green" : state === "late" ? "red" : "blue"} />
+      </div>
+
+      {locked ? <p className={c.readiness}>Este hito se cierra cuando termine la fase anterior. Sus tareas ya se pueden adelantar.</p> : null}
+      {editing ? <div className={c.inline}>{renderEditor(() => setEditing(false))}</div> : null}
+      {milestone.status === "completed" && milestone.completion_evidence ? (
+        <div className={`${c.note} ${c.noteGood}`}>
+          <span className={c.noteL}>{milestone.completion_kind === "exception" ? "Cierre por excepción" : milestone.completion_kind ? "Resultado verificado" : "Cierre anterior sin verificación estructurada"}</span>
+          <p>{milestone.completion_evidence}</p>
+          {openAtClose.length ? <p className={c.muted}>Se cerró con tareas abiertas: {openAtClose.map((task) => task.title).join(" · ")}</p> : null}
+        </div>
+      ) : null}
+
+      {next && !closed && !locked ? (
+        <div className={`${c.nextUp} ${nextDays !== null && nextDays < 0 ? c.nextLate : ""}`}>
+          <span className={c.noteL}>Tu próxima prioridad</span>
+          <b>{next.title}</b>
+          <span className={c.muted}>{nextReason}</span>
+        </div>
+      ) : null}
+
+      <div className={c.taskHead}>
+        <h3>Tareas</h3>
+        <div className={c.taskTools}>
+          {tasks.length ? (
+            <ToggleGroup aria-label="Qué tareas ver" value={filter} onValueChange={setFilter}>
+              {TASK_FILTERS.filter((item) => item.value === "open" || item.value === filter || countOf(item.value) > 0).map((item) => (
+                <ToggleGroupItem key={item.value} value={item.value}>
+                  {item.label} {countOf(item.value)}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
           ) : null}
-          <div className={c.note}>
-            <span className={c.noteL}>Cómo sabremos que está hecho</span>
-            {criterion ? <p>{criterion}</p> : <p className={c.muted}>Sin criterio escrito. Añádelo al editar el hito.</p>}
+          {canManage && !addingTask ? (
+            <Button variant="secondary" size="sm" onClick={() => setAddingTask(true)}>
+              <PlusIcon aria-hidden />
+              Tarea
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      {addingTask ? <div className={c.inline}>{renderAddTask(() => setAddingTask(false))}</div> : null}
+      {discardingTask ? <DiscardTaskDialog task={discardingTask} onClose={() => setDiscardingTask(null)} onDiscard={(reason) => onDiscardTask(discardingTask, reason)} /> : null}
+      {shown.length ? (
+        <ul className={c.tasks}>{shown.map(row)}</ul>
+      ) : (
+        <p className={c.empty}>{tasks.length ? "No hay tareas en esta vista." : "Este hito no tiene tareas todavía."}</p>
+      )}
+
+      <Collapsible className={`${c.more} ${c.details}`}>
+        <CollapsibleTrigger>
+          Contexto y criterios del hito
+          <IconChevronDown aria-hidden className="ui-collapsible__chevron" />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className={c.detail}>
+            {dates.length ? (
+              <>
+                <span className={c.noteL}>Fechas</span>
+                <p>{dates.join(" · ")}</p>
+              </>
+            ) : null}
+            <span className={c.noteL}>Criterios de éxito</span>
+            {criteria.length > 1 ? (
+              <ul className={c.bullets}>
+                {criteria.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className={criteria.length ? undefined : c.muted}>{criteria[0] ?? "Sin criterio escrito. Añádelo al editar el hito."}</p>
+            )}
             {objectives.map((objective) => {
               const reached = objective.status === "cumplido";
               return (
@@ -933,77 +1157,66 @@ function MilestoneDesk({
                 </div>
               );
             })}
-            <button type="button" className={buttonVariants({ variant: "link" })} onClick={onOpenObjectives}>
-              {objectives.length ? "Ver objetivos" : "Añadir una métrica a este hito"}
-            </button>
+            {milestone.rationale?.trim() ? (
+              <>
+                <span className={c.noteL}>Por qué ahora</span>
+                <p>{milestone.rationale}</p>
+              </>
+            ) : null}
+            {text.length > 160 ? (
+              <>
+                <span className={c.noteL}>Qué se busca</span>
+                <p>{text}</p>
+              </>
+            ) : null}
+            {notes ? (
+              <>
+                <span className={c.noteL}>Notas internas</span>
+                {notes}
+              </>
+            ) : null}
           </div>
-          <div className={c.notes}>{notes}</div>
-        </div>
-
-        <div className={c.deskCol}>
-          <div className={c.taskHead}>
-            <div>
-              <h3>Tareas</h3>
-              <span className={c.muted}>
-                {done} de {tasks.length} hechas
-                {owners.length ? " · abiertas: " : ""}
-                {owners.map((entry, index) => (
-                  <span key={entry.owner}>
-                    {index ? ", " : ""}
-                    {entry.n} {(viewerIsClient ? OWNER_COUNT_CLIENT : OWNER_COUNT)[entry.owner]![entry.n === 1 ? 0 : 1]}
-                  </span>
-                ))}
-              </span>
-            </div>
-            <div className={c.taskTools}>
-              {open.length && open.length !== tasks.length ? (
-                <ToggleGroup aria-label="Qué tareas ver" value={filter} onValueChange={setFilter}>
-                  <ToggleGroupItem value="all">Todas</ToggleGroupItem>
-                  <ToggleGroupItem value="open">Abiertas</ToggleGroupItem>
-                </ToggleGroup>
-              ) : null}
-              {canManage && !addingTask ? (
-                <Button variant="secondary" size="sm" onClick={() => setAddingTask(true)}>
-                  <PlusIcon aria-hidden />
-                  Tarea
-                </Button>
-              ) : null}
-            </div>
-          </div>
-          <Bar value={tasks.length ? (done / tasks.length) * 100 : 0} tone={state === "late" ? "red" : "green"} />
-          {!canResolveTasks ? (
-            <p className={c.hint}>
-              {viewerIsClient
-                ? "Tú cierras las tareas que tienes asignadas; el resto las marca el responsable de la tienda."
-                : "Las tareas del cliente y las compartidas las marca el cliente; tú cierras las que tienes asignadas."}
-            </p>
-          ) : null}
-          {addingTask ? <div className={c.inline}>{renderAddTask(() => setAddingTask(false))}</div> : null}
-          {shown.length ? (
-            <ul className={c.tasks}>
-              {shown.map((task) => (
-                <TaskRow
-                  key={task.id}
-                  task={task}
-                  today={today}
-                  canTick={(canResolveTasks || (Boolean(task.assigned_to) && task.assigned_to === currentUserId)) && !draft && !locked}
-                  canManage={canManage}
-                  asset={marketingByTask.get(task.id) ?? null}
-                  generating={generatingTaskId === task.id}
-                  onToggle={() => onToggleTask(task)}
-                  onGenerate={() => onGenerateMarketingTask(task)}
-                  onEdit={() => setEditingTaskId(task.id)}
-                  onRemove={() => onRemoveTask(task.id)}
-                  editor={editingTaskId === task.id ? renderTaskEditor(task.id, () => setEditingTaskId(null)) : null}
-                />
-              ))}
-            </ul>
-          ) : (
-            <p className={c.empty}>{tasks.length ? "No quedan tareas abiertas." : "Este hito no tiene tareas todavía."}</p>
-          )}
-        </div>
-      </div>
+        </CollapsibleContent>
+      </Collapsible>
     </section>
+  );
+}
+
+function DiscardTaskDialog({ task, onClose, onDiscard }: { task: ConsultantTask; onClose: () => void; onDiscard: (reason: string) => Promise<unknown> }) {
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()} busy={saving} dirty={Boolean(reason)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Descartar «{task.title}»</DialogTitle>
+          <DialogDescription>Deja de contar como pendiente y no bloquea el cierre del hito. Se puede recuperar.</DialogDescription>
+        </DialogHeader>
+        <form
+          id="descartar-tarea"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setSaving(true);
+            try {
+              await onDiscard(reason.trim());
+              onClose();
+            } finally {
+              setSaving(false);
+            }
+          }}
+        >
+          <Field label="Motivo" hint="Mínimo 10 caracteres. Queda visible en la tarea.">
+            <Textarea autoFocus value={reason} onChange={(event) => setReason(event.target.value)} rows={3} maxLength={500} required />
+          </Field>
+        </form>
+        <DialogFooter>
+          <DialogClose>Cancelar</DialogClose>
+          <Button type="submit" form="descartar-tarea" disabled={saving || reason.trim().length < 10}>
+            {saving ? "Descartando…" : "Descartar tarea"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1011,10 +1224,19 @@ function TaskRow({
   task,
   today,
   canTick,
+  tickHint,
   canManage,
+  viewerIsClient,
+  currentUserId,
   asset,
   generating,
+  milestoneClose,
+  assignees,
   onToggle,
+  onDiscard,
+  onReopen,
+  onAssign,
+  onAskAi,
   onGenerate,
   onEdit,
   onRemove,
@@ -1023,80 +1245,141 @@ function TaskRow({
   task: ConsultantTask;
   today: Date;
   canTick: boolean;
+  tickHint: string;
   canManage: boolean;
+  viewerIsClient: boolean;
+  currentUserId: string;
   asset: CaminoMarketingAsset | null;
   generating: boolean;
+  milestoneClose: string | null;
+  assignees: Array<{ id: string; name: string }>;
   onToggle: () => void;
+  onDiscard: () => void;
+  onReopen: () => void;
+  onAssign: (userId: string | null) => void;
+  onAskAi: (question: string, focusLabel: string) => void;
   onGenerate: () => void;
   onEdit: () => void;
   onRemove: () => Promise<unknown>;
   editor: ReactNode;
 }) {
   const [removeOpen, setRemoveOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const isDiscarded = task.status === "ignored";
   const isDone = task.status === "completed";
   const late = isTaskLate(task, today);
-  const owner = ownerOf(task);
   const meta = task.plan_meta;
-  const track = [trackLabel(meta?.track), cadenceLabel(meta?.cadence)].filter(Boolean).join(" · ");
-  const effort = formatEffort(meta?.effort_hours);
-  const hasHow = Boolean(task.description?.trim() || meta?.definition_of_done || meta?.rationale || meta?.evidence?.length);
+  const owner = taskOwnerLabel(task, currentUserId, viewerIsClient) ?? OWNER[task.created_by_origin ?? ""] ?? null;
+  // En la lista solo qué, quién y cuándo. Lo demás, al abrir la tarea.
+  const facts = [
+    trackLabel(meta?.track),
+    cadenceLabel(meta?.cadence),
+    formatEffort(meta?.effort_hours),
+    task.priority === "high" ? "Prioridad alta" : null,
+    task.source !== "strategic_plan" ? (SOURCE_LABEL[task.source] ?? displayValue(task.source)) : null,
+    asset ? `Email · ${marketingAssetStatusLabel(asset)}` : null,
+  ].filter(Boolean);
+  const canAssign = canManage && meta?.owner_role === "shared" && assignees.length > 0 && OPEN_TASK.includes(task.status);
+  const hasDetail = Boolean(facts.length || task.description?.trim() || meta?.definition_of_done || meta?.rationale || meta?.evidence?.length || late || canAssign);
   const tickable = canTick && ["pending", "in_progress", "completed"].includes(task.status);
+  const menu = [
+    ...(canManage ? [{ id: "edit", label: "Editar tarea" }] : []),
+    ...(canTick && OPEN_TASK.includes(task.status) ? [{ id: "discard", label: "Descartar con motivo" }] : []),
+    ...(canTick && isDiscarded ? [{ id: "reopen", label: "Recuperar tarea" }] : []),
+    ...(canManage ? [{ id: "remove", label: "Quitar del camino", danger: true }] : []),
+  ];
+  const onMenu = (id: string) => {
+    if (id === "edit") onEdit();
+    else if (id === "discard") onDiscard();
+    else if (id === "reopen") onReopen();
+    else setRemoveOpen(true);
+  };
 
   return (
-    <li className={`${c.task} task-lift ${isDone ? c.taskDone : ""} ${late ? c.taskLate : ""}`}>
+    <li
+      className={`${c.task} task-lift ${isDone || isDiscarded ? c.taskDone : ""} ${isDiscarded ? c.taskDiscarded : ""} ${late ? c.taskLate : ""} ${hasDetail ? c.taskOpens : ""}`}
+      onClick={(event) => {
+        if (hasDetail && !(event.target as HTMLElement).closest("button, a, input, textarea, form, dialog, [role=menu], [role=dialog], [role=alertdialog], [role=listbox], [role=option]")) setExpanded(!expanded);
+      }}
+    >
       <button
         type="button"
         className={c.tick}
         aria-pressed={isDone}
         aria-label={isDone ? `Reabrir: ${task.title}` : `Marcar hecha: ${task.title}`}
-        title={tickable ? undefined : "No la puedes marcar tú"}
+        title={tickable ? undefined : tickHint}
         disabled={!tickable}
         onClick={onToggle}
       >
         {isDone ? <CheckIcon aria-hidden /> : null}
       </button>
       <div className={c.taskBody}>
-        <span className={c.taskTitle}>{task.title}</span>
-        <span className={c.taskMeta}>
-          {owner && OWNER[owner] ? <span className={`${c.owner} ${OWNER[owner].cls}`}>{OWNER[owner].label}</span> : null}
-          {track ? <span>{track}</span> : null}
-          {effort ? <span>{effort}</span> : null}
-          {task.priority === "urgent" ? <span className={c.textBad}>Urgente</span> : task.priority === "high" ? <span className={c.textWarn}>Prioridad alta</span> : null}
-          {task.source !== "strategic_plan" ? <span>{SOURCE_LABEL[task.source] ?? displayValue(task.source)}</span> : null}
-          {asset ? <span className={c.textBlue}>Email · {marketingAssetStatusLabel(asset)}</span> : null}
-        </span>
-        {hasHow ? (
-          <Collapsible className={c.how}>
-            <CollapsibleTrigger>Cómo hacerlo<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
+        {hasDetail ? (
+          <Collapsible className={c.how} open={expanded} onOpenChange={setExpanded}>
+            <CollapsibleTrigger>
+              {task.title}
+              <IconChevronDown aria-hidden className="ui-collapsible__chevron" />
+            </CollapsibleTrigger>
             <CollapsibleContent>
-            {task.description?.trim() ? <p>{task.description}</p> : null}
-            {meta?.definition_of_done ? (
-              <p>
-                <b>Se da por hecha cuando:</b> {meta.definition_of_done}
-              </p>
-            ) : null}
-            {meta?.rationale ? (
-              <p>
-                <b>Por qué:</b> {meta.rationale}
-              </p>
-            ) : null}
-            {meta?.evidence?.length ? (
-              <span className={c.evidence}>
-                {meta.evidence.map((item, index) => (
-                  <span key={index}>
-                    {item.label}: {item.value}
-                    {item.period ? ` · ${item.period}` : ""}
-                  </span>
-                ))}
-              </span>
-            ) : null}
-          </CollapsibleContent>
+              {late ? (
+                <div className={c.lateHint}>
+                  <p>{lateTaskAdvice(task.due_at!, milestoneClose, today)}</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      onAskAi(
+                        `La tarea «${task.title}» venció el ${shortDate(task.due_at)}${milestoneClose ? ` y su hito cierra el ${shortDate(milestoneClose)}` : ""}. ¿Cómo la resolverías o a qué fecha la moverías? Si faltan datos, dime cuáles.`,
+                        "Tarea vencida",
+                      )
+                    }
+                  >
+                    <SparklesIcon aria-hidden />
+                    Pedir sugerencia a la IA
+                  </Button>
+                </div>
+              ) : null}
+              {canAssign ? (
+                <Field className={c.ownerField} label="Responsable principal" hint="Compartida: quien la lleva y responde de ella.">
+                  <Select
+                    value={task.assigned_to ?? ""}
+                    onChange={(value) => onAssign(value || null)}
+                    options={[{ value: "", label: "Sin responsable principal" }, ...assignees.map((person) => ({ value: person.id, label: person.name }))]}
+                  />
+                </Field>
+              ) : null}
+              {facts.length ? <p className={c.taskFacts}>{facts.join(" · ")}</p> : null}
+              {task.description?.trim() ? <p>{task.description}</p> : null}
+              {meta?.definition_of_done ? (
+                <p>
+                  <b>Se da por hecha cuando:</b> {meta.definition_of_done}
+                </p>
+              ) : null}
+              {meta?.rationale ? (
+                <p>
+                  <b>Por qué:</b> {meta.rationale}
+                </p>
+              ) : null}
+              {meta?.evidence?.length ? (
+                <span className={c.evidence}>
+                  {meta.evidence.map((item, index) => (
+                    <span key={index}>
+                      {item.label}: {item.value}
+                      {item.period ? ` · ${item.period}` : ""}
+                    </span>
+                  ))}
+                </span>
+              ) : null}
+            </CollapsibleContent>
           </Collapsible>
-        ) : null}
+        ) : (
+          <span className={c.taskTitle}>{task.title}</span>
+        )}
+        {isDiscarded ? <p className={c.muted}>Descartada{task.ignored_reason ? `: ${task.ignored_reason}` : ""}</p> : null}
         {editor ? <div className={c.inline}>{editor}</div> : null}
       </div>
       <div className={c.taskSide}>
-        <span className={`${c.due} ${late ? c.textBad : ""}`}>{task.due_at ? (late ? `Vencida ${shortDate(task.due_at)}` : shortDate(task.due_at)) : ""}</span>
+        {task.priority === "urgent" && !isDone ? <span className={`${c.urgent} ${c.textBad}`}>Urgente</span> : null}
         {asset ? (
           <a className={c.chipLink} href={marketingAssetHref(asset.id)}>
             Abrir borrador
@@ -1106,16 +1389,9 @@ function TaskRow({
             {generating ? "Preparando…" : "Borrador de email"}
           </button>
         ) : null}
-        {canManage ? (
-          <ActionMenu
-            label={`Más acciones de la tarea: ${task.title}`}
-            items={[
-              { id: "edit", label: "Editar tarea" },
-              { id: "remove", label: "Quitar del camino", danger: true },
-            ]}
-            onAction={(id) => (id === "edit" ? onEdit() : setRemoveOpen(true))}
-          />
-        ) : null}
+        {owner ? <span className={c.owner}>{owner}</span> : null}
+        <span className={`${c.due} ${late ? c.textBad : ""}`}>{task.due_at ? (late ? `Vencida · ${shortDate(task.due_at)}` : shortDate(task.due_at)) : ""}</span>
+        <ActionMenu label={`Más acciones de la tarea: ${task.title}`} items={menu} onAction={onMenu} />
         <AlertDialog open={removeOpen} onOpenChange={setRemoveOpen}>
           <AlertDialogContent size="sm">
             <AlertDialogHeader>
@@ -1137,7 +1413,7 @@ function TaskRow({
 }
 
 // ---------------------------------------------------------------------------
-// Trabajo por carril
+// Todo el camino: el trabajo por carril, de todas las fases
 // ---------------------------------------------------------------------------
 
 const TRACK_HINT: Record<string, string> = {
@@ -1153,12 +1429,14 @@ function Tracks({ tasks }: { tasks: ConsultantTask[] }) {
   });
   if (byTrack.every((entry) => entry.total === 0)) return null;
   const routines = growthRoutines(tasks);
+  const doneAll = tasks.filter((task) => task.status === "completed").length;
   return (
-    <section className={c.panel} aria-labelledby="carriles">
-      <div className={c.panelHead}>
-        <h3 id="carriles">Trabajo por carril</h3>
-        <span className={c.muted}>Todas las tareas del camino, según para qué sirven</span>
-      </div>
+    <Collapsible className={`${c.panel} ${c.more}`}>
+      <CollapsibleTrigger>
+        Todo el camino: {doneAll} de {plural(tasks.length, "tarea hecha", "tareas hechas")}
+        <IconChevronDown aria-hidden className="ui-collapsible__chevron" />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
       <div className={c.lanes}>
         {byTrack.map(({ track, total, done }, index) => (
           <div key={track} className={c.lane}>
@@ -1192,137 +1470,364 @@ function Tracks({ tasks }: { tasks: ConsultantTask[] }) {
         </CollapsibleContent>
         </Collapsible>
       ) : null}
-    </section>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Meta y ruta económica
+// Ruta económica
 // ---------------------------------------------------------------------------
+
+/** El margen de cada mes con coste completo, y qué entra y qué falta en el cálculo. */
+function MarginPanel({ economics, target, formatMoney, formatPct }: { economics: Economics; target: number | null; formatMoney: (value: number) => string; formatPct: (value: number) => string }) {
+  const { months, costs } = economics;
+  const values = months.flatMap((month) => (month.margin_pct === null ? [] : [month.margin_pct]));
+  const top = Math.max(1, target ?? 0, ...values);
+  const included = costs.items.filter((item) => item.included);
+  const missing = costs.items.filter((item) => !item.included);
+  const costMonth = costs.month ? monthYear.format(new Date(`${costs.month}-01T00:00:00Z`)) : null;
+  return (
+    <section className={c.panel} aria-labelledby="margen-camino">
+      <div className={c.panelHead}>
+        <div>
+          <h3 id="margen-camino">{costs.partial ? "Margen parcial, mes a mes" : "Margen neto, mes a mes"}</h3>
+          <span className={c.muted}>Solo se dibuja un mes si todos sus artículos tienen coste</span>
+        </div>
+        {target !== null ? (
+          <span className={c.legend}>
+            <span>
+              <i className={c.keyBase} aria-hidden="true" /> Objetivo {formatPct(target)}
+            </span>
+          </span>
+        ) : null}
+      </div>
+      {values.length ? (
+        <div className={c.marginCols}>
+          {target !== null ? (
+            <span className={c.plot} aria-hidden="true">
+              <i style={{ bottom: `${(target / top) * 100}%` }} />
+            </span>
+          ) : null}
+          {months.map((month) => {
+            const label = monthShort.format(new Date(`${month.month}-01T00:00:00Z`)).replace(".", "");
+            const value = month.margin_pct;
+            return (
+              <div key={month.month} className={c.marginCol} title={value === null ? `${label}: sin coste completo` : `${label}: ${formatPct(value)}`}>
+                <span className={c.colV}>{value === null ? "—" : formatPct(value)}</span>
+                <span className={c.marginTrack}>{value !== null && value > 0 ? <i style={{ height: `${Math.max(2, (value / top) * 100)}%` }} /> : null}</span>
+                <span className={c.colL}>
+                  {label}
+                  {month.in_progress ? "*" : ""}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className={c.empty}>Aún no hay ningún mes con todos los costes para calcular el margen.</p>
+      )}
+      {values.length && months.some((month) => month.in_progress) ? <p className={c.muted}>* Mes en curso.</p> : null}
+      <div className={c.costs}>
+        <div>
+          <span className={c.noteL}>Incluido{costMonth ? ` en ${costMonth}` : ""}</span>
+          {included.length ? (
+            <ul>
+              {included.map((item) => (
+                <li key={item.key}>
+                  <span>{item.label}</span>
+                  <b>{item.amount !== null ? formatMoney(item.amount) : "—"}</b>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className={c.muted}>Ningún coste medido</p>
+          )}
+        </div>
+        <div>
+          <span className={c.noteL}>Falta por incluir</span>
+          {missing.length ? (
+            <ul>
+              {missing.map((item) => (
+                <li key={item.key}>
+                  <span>{item.label}</span>
+                  <span className={c.muted}>{item.note}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className={c.muted}>Nada: el margen cuenta todos los costes conocidos</p>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
 
 function calendarMonth(startDate: string, month: number) {
   const start = asDate(startDate);
   return new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + month - 1, 1));
 }
 
+const monthKey = (date: Date) => date.toISOString().slice(0, 7);
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+// El razonamiento de A19 lleva a veces el nombre interno de la métrica.
+const plainRationale = (text: string) => text.replace(/\brun_rate_3m\b/g, "ritmo de los últimos 3 meses");
+
 function GoalDesk({
   goal,
   startsOn,
   stops,
   observed,
+  monthActuals,
+  margin,
+  economics,
+  economicsFailed,
   formatGoal,
+  formatObjective,
   canManage,
   onChangeGoal,
+  onAskAi,
   today,
 }: {
   goal: ConsultantGoal | null;
   startsOn: string | null;
   stops: Stop[];
   observed: number | null;
+  monthActuals: Map<string, number> | null;
+  margin: ConsultantObjective | null;
+  economics: Economics | null;
+  economicsFailed: boolean;
   formatGoal: (value: number) => string;
+  formatObjective: (value: number, unit: ConsultantObjective["unit"]) => string;
   canManage: boolean;
   onChangeGoal: () => void;
+  onAskAi: (question: string, focusLabel: string) => void;
   today: Date;
 }) {
+  const [picked, setPicked] = useState<number | null>(null);
   if (!goal) {
     return <p className={c.empty}>Este camino no tiene meta. Se fija al crear o replanificar el camino.</p>;
   }
   const short = (value: number) => formatGoal(value).replace(/,00(?=\s|$)/, "");
   const growth = goal.baseline && goal.target ? Math.round((goal.target / goal.baseline - 1) * 100) : null;
   const targets = goal.monthly_targets ?? [];
-  const start = startsOn ?? today.toISOString().slice(0, 10);
-  const max = Math.max(1, goal.baseline ?? 0, ...targets.map((target) => target.target_value ?? 0));
-  const thisMonth = Date.UTC(today.getFullYear(), today.getMonth(), 1);
+  const startsAt = startsOn ?? today.toISOString().slice(0, 10);
+  const start = routeStart(startsAt, targets);
+  const thisMonth = monthKey(new Date(Date.UTC(today.getFullYear(), today.getMonth(), 1)));
+  const keyOf = (month: number) => monthKey(calendarMonth(start, month));
+  const actualOf = (month: number) => monthActuals?.get(keyOf(month)) ?? null;
+  const max = Math.max(1, goal.baseline ?? 0, ...targets.map((target) => Math.max(target.target_value ?? 0, actualOf(target.month) ?? 0)));
   // Un camino que empieza a mitad de mes acaba a mitad de mes: el primer y el
   // último tramo son parciales y compararlos con un mes entero engaña.
-  const midMonthStart = asDate(start).getUTCDate() !== 1;
+  const midMonthStart = asDate(startsAt).getUTCDate() !== 1 && !goal.measured_from;
   const isPartial = (month: number) => midMonthStart && (month === 1 || month === targets.length);
 
+  const goalMonth = targets.find((target) => goal.target !== null && target.target_value === goal.target) ?? null;
+  const goalActual = goalMonth ? (actualOf(goalMonth.month) ?? observed) : observed;
+  const reachedPct = goalActual !== null && goal.target ? Math.round((goalActual / goal.target) * 100) : null;
+  const marginGap = margin?.actual_value != null ? margin.actual_value - margin.target_value : null;
+
+  const current = targets.find((target) => target.month === picked) ?? targets.find((target) => keyOf(target.month) === thisMonth) ?? goalMonth ?? targets[0] ?? null;
+  const currentActual = current ? actualOf(current.month) : null;
+  const currentChange = current?.target_value != null && goal.baseline ? Math.round((current.target_value / goal.baseline - 1) * 100) : null;
+  const thisTarget = targets.find((target) => keyOf(target.month) === thisMonth) ?? null;
+  const thisActual = thisTarget ? actualOf(thisTarget.month) : null;
+  const pace = thisTarget?.target_value && thisActual !== null ? monthPace(thisActual, thisTarget.target_value, today) : null;
+  const behind = (pace !== null && pace.pct < 100) || (marginGap !== null && marginGap < 0);
+  const measuredAt = goalMonth ? monthLong.format(calendarMonth(start, goalMonth.month)) : null;
+  const dateFacts = [goal.target_date ? `Fecha objetivo: ${shortDate(goal.target_date)}` : null, measuredAt ? `Se mide al cerrar ${measuredAt}` : null].filter(Boolean).join(" · ");
+  const marginName = economics?.costs.partial ? "Margen parcial" : (margin?.label ?? "Margen neto");
+  const goalStatus =
+    pace && pace.pct < 100
+      ? ({ label: "Por debajo del ritmo", tone: "warn" } as const)
+      : marginGap !== null && marginGap < 0
+        ? ({ label: "Margen por debajo", tone: "warn" } as const)
+        : pace
+          ? ({ label: "En ritmo", tone: "success" } as const)
+          : null;
+  const currentMilestones = current ? milestonesInMonth(start, current.month, stops.map((stop) => ({ name: `${stop.code} ${stop.milestone.name}`, date: stop.milestone.target_date }))) : [];
+
   return (
-    <div className={c.goalGrid}>
+    <div className={c.goalStack}>
       <section className={c.panel} aria-labelledby="meta-camino">
         <div className={c.panelHead}>
-          <h3 id="meta-camino">Meta del camino</h3>
+          <div className={c.goalHeading}>
+            <div className={c.goalTitle}>
+              <h3 id="meta-camino">{goalMonth ? `Meta de ${monthLong.format(calendarMonth(start, goalMonth.month))}` : "Meta del camino"}</h3>
+              {goalStatus ? <Badge tone={goalStatus.tone}>{goalStatus.label}</Badge> : null}
+            </div>
+            <span className={c.muted}>{[goal.metric_label, dateFacts].filter(Boolean).join(" · ")}</span>
+          </div>
           {canManage ? (
             <Button variant="secondary" size="sm" onClick={onChangeGoal}>
               Cambiar meta
             </Button>
           ) : null}
         </div>
-        <p className={c.muted}>{goal.metric_label}</p>
-        <div className={c.goalFlow}>
-          <div>
-            <span className={c.noteL}>Punto de partida</span>
-            <b>{goal.baseline !== null ? short(goal.baseline) : "—"}</b>
-            <span className={c.muted}>
-              {goal.baseline_window_days ? `Media de ${goal.baseline_window_days} días` : "Ritmo reciente"}
-            </span>
+        <div className={c.goalSummary}>
+          <div className={c.goalHero}>
+            <span className={c.noteL}>Actual</span>
+            <p className={c.goalHeroValue}>
+              <b>{goalActual !== null ? short(Math.round(goalActual)) : "—"}</b>
+              <span>{goal.target !== null ? `de ${short(goal.target)}` : "Sin cuantificar"}</span>
+            </p>
+            {reachedPct !== null ? <Progress value={Math.min(100, reachedPct)} aria-label="Progreso hacia la meta" /> : null}
+            <span className={c.muted}>{reachedPct !== null ? `${reachedPct} % alcanzado` : "Aún sin medir"}</span>
           </div>
-          <span className={c.goalArrow} aria-hidden="true">
-            {growth !== null ? `${growth >= 0 ? "+" : ""}${growth} %` : ""}
-          </span>
-          <div>
-            <span className={c.noteL}>Meta</span>
-            <b className={c.textTerra}>{goal.target !== null ? short(goal.target) : "Sin cuantificar"}</b>
-            <span className={c.muted}>{goal.target_date ? `Para el ${shortDate(goal.target_date)}` : ""}</span>
-          </div>
-          <div>
-            <span className={c.noteL}>Medido</span>
-            <b>{observed !== null ? short(observed) : "—"}</b>
-            <span className={c.muted}>{observed !== null ? "Última revisión" : "Aún sin medir"}</span>
+          <div className={c.goalTiles}>
+            {pace ? (
+              <div>
+                <span className={c.noteL}>Cierre a este ritmo</span>
+                <b className={pace.pct < 100 ? c.textBad : undefined}>{short(Math.round(pace.projected))}</b>
+                <span className={c.muted}>{Math.round(pace.pct)} % del objetivo del mes</span>
+              </div>
+            ) : null}
+            <div>
+              <span className={c.noteL}>{marginName}</span>
+              <b className={marginGap !== null && marginGap < 0 ? c.textBad : undefined}>{margin?.actual_value != null ? formatObjective(margin.actual_value, margin.unit) : "—"}</b>
+              <span className={c.muted}>
+                {margin === null
+                  ? "Sin objetivo de margen"
+                  : marginGap === null
+                    ? `Sin datos fiables. La meta exige ${formatObjective(margin.target_value, margin.unit)}`
+                    : `${marginGap >= 0 ? "+" : "−"}${Math.abs(marginGap).toLocaleString("es-ES", { maximumFractionDigits: 1 })} pp del ${formatObjective(margin.target_value, margin.unit)} que exige la meta`}
+              </span>
+            </div>
+            <div>
+              <span className={c.noteL}>Referencia</span>
+              <b>{goal.baseline !== null ? short(goal.baseline) : "—"}</b>
+              <span className={c.muted}>{growth !== null ? `Ritmo mensual · objetivo ${growth >= 0 ? "+" : ""}${growth} %` : "Ritmo mensual reciente"}</span>
+            </div>
           </div>
         </div>
-        <span className={c.pill}>{CONFIDENCE[goal.confidence] ?? "Confianza sin indicar"}</span>
-        {goal.rationale ? (
-          <div className={c.note}>
-            <span className={c.noteL}>Por qué esta meta</span>
-            <p>{goal.rationale}</p>
+        {behind || economics ? (
+          <div className={c.goalActions}>
+            {behind ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() =>
+                  onAskAi(
+                    `${[pace && thisTarget?.target_value ? `Ventas de este mes: ${short(thisActual!)} de ${short(thisTarget.target_value)}.` : null, marginGap !== null && margin ? `Margen: ${formatObjective(margin.actual_value!, margin.unit)} frente a ${formatObjective(margin.target_value, margin.unit)}.` : null].filter(Boolean).join(" ")} ¿Qué explica la desviación? Separa lo que los datos confirman de las hipótesis, y dime qué costes o datos faltan por verificar.`,
+                    "Meta económica",
+                  )
+                }
+              >
+                <SparklesIcon aria-hidden />
+                Analizar la desviación con IA
+              </Button>
+            ) : null}
+            {economics ? (
+              <span className={c.goalSolidity}>
+                Solidez de los datos
+                <Badge tone={DATA_LEVEL_TONE[economics.confidence.level]} className="capitalize">{DATA_LEVEL[economics.confidence.level]}</Badge>
+              </span>
+            ) : null}
           </div>
         ) : null}
-        {goal.assumptions.length ? (
-          <Collapsible className={c.more}>
-            <CollapsibleTrigger>Supuestos de la meta ({goal.assumptions.length})<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
-            <CollapsibleContent>
-            <ul className={c.bullets}>
-              {goal.assumptions.map((assumption, index) => (
-                <li key={index}>{assumption}</li>
-              ))}
-            </ul>
+        <Collapsible className={c.more}>
+          <CollapsibleTrigger>
+            Por qué esta meta y cómo se calcula
+            <IconChevronDown aria-hidden className="ui-collapsible__chevron" />
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className={c.goalDetail}>
+              <div className={c.goalWhy}>
+                <div className={c.goalBlock}>
+                  {goal.rationale ? (
+                    <>
+                      <h4>Por qué esta cifra</h4>
+                      <p>{plainRationale(goal.rationale)}</p>
+                    </>
+                  ) : null}
+                  {goal.assumptions.length ? (
+                    <>
+                      <h4>Supuestos</h4>
+                      <ul className={c.bullets}>
+                        {goal.assumptions.map((assumption, index) => (
+                          <li key={index}>{plainRationale(assumption)}</li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : null}
+                </div>
+                <div className={c.goalBlock}>
+                  {economics ? (
+                    <>
+                      <h4>Solidez de los datos</h4>
+                      <ul className={c.signals}>
+                        {economics.confidence.signals.map((signal) => (
+                          <li key={signal.key}>
+                            <b>{signal.label}</b>
+                            <span>{signal.detail}</span>
+                            <Badge tone={SIGNAL_TONE[signal.state]}>{SIGNAL_MARK[signal.state]}</Badge>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : null}
+                  <h4>Cómo leer estas cifras</h4>
+                  <p>La IA propuso esta meta con {CONFIDENCE[goal.confidence] ?? "confianza sin indicar"}. Es su valoración, no una previsión estadística.</p>
+                  {pace ? <p>El cierre a este ritmo extrapola lo vendido en lo que va de mes. Tampoco es una previsión.</p> : null}
+                </div>
+              </div>
+              {goal.decision_gates?.length ? (
+                <div className={c.goalBlock}>
+                  <h4>Decisiones que dependen de los datos</h4>
+                  <ul className={c.gates}>
+                    {goal.decision_gates.map((gate, index) => (
+                      <li key={index}>
+                        <b>{gate.decision}</b>
+                        <dl className={c.gateRules}>
+                          <div>
+                            <dt><Badge tone="success">Avanzar</Badge></dt>
+                            <dd>{gate.proceed_when}</dd>
+                          </div>
+                          <div>
+                            <dt><Badge tone="warn">Pausar</Badge></dt>
+                            <dd>{gate.hold_when}</dd>
+                          </div>
+                          <div>
+                            <dt><Badge tone="neutral">Comprobar</Badge></dt>
+                            <dd>{gate.evidence_needed}</dd>
+                          </div>
+                        </dl>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
           </CollapsibleContent>
-          </Collapsible>
-        ) : null}
-        {goal.decision_gates?.length ? (
-          <Collapsible className={c.more}>
-            <CollapsibleTrigger>Decisiones que dependen de los datos ({goal.decision_gates.length})<IconChevronDown aria-hidden className="ui-collapsible__chevron" /></CollapsibleTrigger>
-            <CollapsibleContent>
-            <ul className={c.gates}>
-              {goal.decision_gates.map((gate, index) => (
-                <li key={index}>
-                  <b>{gate.decision}</b>
-                  <span>
-                    <em className={c.textGreen}>Avanzar</em> {gate.proceed_when}
-                  </span>
-                  <span>
-                    <em className={c.textBad}>Pausar</em> {gate.hold_when}
-                  </span>
-                  <span>
-                    <em>Comprobar</em> {gate.evidence_needed}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </CollapsibleContent>
-          </Collapsible>
-        ) : null}
+        </Collapsible>
       </section>
+
+      {economicsFailed ? <p className={c.empty}>No se pudo cargar la evolución del margen. Vuelve a abrir esta pestaña en un momento.</p> : null}
+      {economics ? <MarginPanel economics={economics} target={margin?.target_value ?? null} formatMoney={(value) => formatObjective(value, "money")} formatPct={(value) => formatObjective(value, "pct")} /> : null}
 
       {targets.length ? (
         <section className={c.panel} aria-labelledby="ruta-economica">
           <div className={c.panelHead}>
-            <h3 id="ruta-economica">Ruta económica mes a mes</h3>
-            <span className={c.muted}>La línea discontinua es el punto de partida</span>
+            <div>
+              <h3 id="ruta-economica">Objetivos mes a mes</h3>
+              <span className={c.muted}>Elige un mes para ver por qué se fijó esa cifra</span>
+            </div>
+            <span className={c.legend}>
+              <span>
+                <i className={c.keyTarget} aria-hidden="true" /> Objetivo
+              </span>
+              <span>
+                <i className={c.keyActual} aria-hidden="true" /> Ventas reales
+              </span>
+              {goal.baseline !== null ? (
+                <span>
+                  <i className={c.keyBase} aria-hidden="true" /> Referencia
+                </span>
+              ) : null}
+            </span>
           </div>
-          <div className={c.cols} role="img" aria-label={targets.map((target) => `Mes ${target.month}: ${target.target_value === null ? "sin cifra" : formatGoal(target.target_value)}`).join(", ")}>
+          <div className={c.cols}>
             {goal.baseline !== null ? (
               <span className={c.plot} aria-hidden="true">
                 <i style={{ bottom: `${(goal.baseline / max) * 100}%` }} />
@@ -1330,51 +1835,49 @@ function GoalDesk({
             ) : null}
             {targets.map((target) => {
               const month = calendarMonth(start, target.month);
-              const isGoal = goal.target !== null && target.target_value === goal.target;
-              const isNow = month.getTime() === thisMonth;
+              const actual = actualOf(target.month);
+              const label = monthYear.format(month);
+              const value = target.target_value === null ? "sin cifra" : short(target.target_value);
               return (
-                <div key={target.month} className={c.col}>
+                <button
+                  key={target.month}
+                  type="button"
+                  className={`${c.col} ${target.month === current?.month ? c.colOn : ""}`}
+                  aria-pressed={target.month === current?.month}
+                  aria-label={`${label}: objetivo ${value}${actual !== null ? `, ventas reales ${short(actual)}` : ""}`}
+                  title={`Objetivo ${value}${actual !== null ? ` · Ventas reales ${short(actual)}` : ""}`}
+                  onClick={() => setPicked(target.month)}
+                >
                   <span className={c.colV}>{target.target_value === null ? "—" : short(target.target_value)}</span>
                   <span className={c.colTrack}>
-                    <i className={isGoal ? c.colGoal : isNow ? c.colNow : isPartial(target.month) ? c.colPartial : ""} style={{ height: `${target.target_value === null ? 0 : Math.max(3, (target.target_value / max) * 100)}%` }} />
+                    <i style={{ height: `${target.target_value === null ? 0 : Math.max(3, (target.target_value / max) * 100)}%` }} />
+                    {actual !== null ? <b style={{ height: `${Math.max(2, (actual / max) * 100)}%` }} /> : null}
                   </span>
-                  <span className={`${c.colL} ${isNow ? c.colLNow : ""}`}>{monthShort.format(month).replace(".", "")}</span>
-                </div>
+                  <span className={c.colL}>
+                    {monthShort.format(month).replace(".", "")}
+                    {isPartial(target.month) ? "*" : ""}
+                  </span>
+                </button>
               );
             })}
           </div>
-          <Accordion multiple className={c.months}>
-            {targets.map((target) => {
-              const month = calendarMonth(start, target.month);
-              const inMonth = milestonesInMonth(start, target.month, stops.map((stop) => ({ name: `${stop.code} ${stop.milestone.name}`, date: stop.milestone.target_date })));
-              const change = target.target_value !== null && goal.baseline ? Math.round((target.target_value / goal.baseline - 1) * 100) : null;
-              const partial = isPartial(target.month);
-              const label = monthYear.format(month);
-              return (
-                <AccordionItem key={target.month} value={String(target.month)}>
-                  <AccordionTrigger className={c.monthTrigger}>
-                      <span>
-                        {label.charAt(0).toUpperCase() + label.slice(1)}
-                        {partial ? <span className={c.partial}>Mes parcial</span> : null}
-                      </span>
-                      <b>{target.target_value === null ? "Sin cifra" : short(target.target_value)}</b>
-                      {change !== null && !partial ? (
-                        <span className={change >= 0 ? c.textGreen : c.textBad}>
-                          {change >= 0 ? "+" : ""}
-                          {change} %
-                        </span>
-                      ) : (
-                        <span />
-                      )}
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <p>{target.rationale}</p>
-                    {inMonth.length ? <p className={c.muted}>Hitos del mes: {inMonth.map((milestone) => milestone.name).join(" · ")}</p> : null}
-                  </AccordionContent>
-                </AccordionItem>
-              );
-            })}
-          </Accordion>
+          {targets.some((target) => isPartial(target.month)) ? <p className={c.muted}>* Mes parcial. Cada columna es un objetivo, no una previsión.</p> : null}
+          {current ? (
+            <div className={c.monthDetail}>
+              <div className={c.monthHead}>
+                <h4>{capitalize(monthYear.format(calendarMonth(start, current.month)))}</h4>
+                <b>{current.target_value === null ? "Sin cifra" : short(current.target_value)}</b>
+              </div>
+              <p className={c.muted}>
+                {[
+                  currentChange !== null && !isPartial(current.month) ? `${currentChange >= 0 ? "+" : ""}${currentChange} % sobre la referencia` : null,
+                  currentActual !== null ? `Ventas reales: ${short(currentActual)}` : null,
+                ].filter(Boolean).join(" · ")}
+              </p>
+              <p>{plainRationale(current.rationale)}</p>
+              {currentMilestones.length ? <p className={c.muted}>Hitos del mes: {currentMilestones.map((milestone) => milestone.name).join(" · ")}</p> : null}
+            </div>
+          ) : null}
         </section>
       ) : null}
     </div>
@@ -1630,6 +2133,8 @@ export type MilestoneEditValues = {
   name: string;
   description: string;
   targetDate: string;
+  deadlineDate: string;
+  measurementDate: string;
   successCriteria: string;
   rationale: string;
 };
@@ -1653,6 +2158,8 @@ export function MilestoneEditForm({
   const [criteria, setCriteria] = useState(milestone.success_criteria?.trim() || split.criterion || "");
   const [rationale, setRationale] = useState(milestone.rationale ?? "");
   const [targetDate, setTargetDate] = useState(milestone.target_date?.slice(0, 10) ?? "");
+  const [deadlineDate, setDeadlineDate] = useState(milestone.deadline_date ?? "");
+  const [measurementDate, setMeasurementDate] = useState(milestone.measurement_date ?? "");
   const [saving, setSaving] = useState(false);
 
   return (
@@ -1663,7 +2170,7 @@ export function MilestoneEditForm({
         if (!name.trim()) return;
         setSaving(true);
         try {
-          await onSubmit({ name: name.trim(), description: description.trim(), targetDate, successCriteria: criteria.trim(), rationale: rationale.trim() });
+          await onSubmit({ name: name.trim(), description: description.trim(), targetDate, deadlineDate, measurementDate, successCriteria: criteria.trim(), rationale: rationale.trim() });
         } finally {
           setSaving(false);
         }
@@ -1677,8 +2184,16 @@ export function MilestoneEditForm({
         <Field label="Nombre">
           <Input value={name} onChange={(event) => setName(event.target.value)} required maxLength={255} />
         </Field>
-        <Field label="Fecha objetivo">
+      </div>
+      <div className={c.formDates}>
+        <Field label="Fecha objetivo" hint="Cuándo quieres conseguirlo">
           <DatePicker value={targetDate} onChange={(value) => setTargetDate(value)} />
+        </Field>
+        <Field label="Fecha límite" hint="Cuándo debe estar cerrado. Vacía, la objetivo">
+          <DatePicker value={deadlineDate} onChange={(value) => setDeadlineDate(value)} />
+        </Field>
+        <Field label="Fecha de medición" hint="Cuándo se comprueba el resultado">
+          <DatePicker value={measurementDate} onChange={(value) => setMeasurementDate(value)} />
         </Field>
       </div>
       <Field label="Qué se busca">
@@ -1705,35 +2220,55 @@ export function MilestoneEditForm({
 }
 
 // ---------------------------------------------------------------------------
-// Ajustes del camino (pestaña Estructura)
+// Configuración del plan
 // ---------------------------------------------------------------------------
 
 export function PlanSettings({
   name,
   description,
+  version,
+  horizonMonths,
+  startsOn,
   currencyControl,
+  currencyNote,
+  timezone,
+  previousPlans,
+  organizationId,
+  planId,
+  replacesPlan,
   editForm,
   onEdit,
-  deleteControl,
 }: {
   name: string;
   description: string | null;
+  version: number;
+  horizonMonths?: number | null;
+  startsOn: string | null;
   currencyControl: ReactNode;
+  currencyNote: string;
+  timezone: string | null;
+  previousPlans: Array<{ id: string; name: string; version: number; created_at: string }>;
+  organizationId: string;
+  planId: string;
+  replacesPlan: boolean;
   editForm: ReactNode;
   onEdit: () => void;
-  deleteControl: ReactNode;
 }) {
+  const [openVersion, setOpenVersion] = useState<string | null>(null);
   return (
     <section className={c.panel} aria-labelledby="ajustes-camino">
       <div className={c.panelHead}>
-        <h3 id="ajustes-camino">Ajustes del camino</h3>
+        <h3 id="ajustes-camino">Configuración del plan</h3>
       </div>
       <div className={c.settings}>
         <div className={c.setRow}>
           <div>
-            <b>Nombre y descripción</b>
+            <b>Información general</b>
             <span className={c.muted}>{name}</span>
             {description ? <span className={`${c.muted} ${c.clamp2}`}>{description}</span> : null}
+            <span className={c.muted}>
+              {[`Versión ${version}`, horizonMonths ? plural(horizonMonths, "mes", "meses") : null, startsOn ? `Desde el ${shortDate(startsOn)}` : null].filter(Boolean).join(" · ")}
+            </span>
           </div>
           <Button variant="secondary" size="sm" onClick={onEdit}>
             Editar
@@ -1743,26 +2278,64 @@ export function PlanSettings({
         <div className={c.setRow}>
           <div>
             <b>Moneda de las cifras</b>
-            <span className={c.muted}>Solo cambia cómo se muestran los importes del camino</span>
+            <span className={c.muted}>{currencyNote}</span>
           </div>
           {currencyControl}
         </div>
+        {timezone ? (
+          <div className={c.setRow}>
+            <div>
+              <b>Zona horaria</b>
+              <span className={c.muted}>Las fechas se leen en la hora de la tienda: {timezone}</span>
+            </div>
+          </div>
+        ) : null}
         <div className={c.setRow}>
           <div>
-            <b>Replanificar</b>
-            <span className={c.muted}>Crea una versión nueva del camino con la IA o una plantilla; esta queda en el historial</span>
+            <b>Planificación con IA</b>
+            <span className={c.muted}>Pide los cambios, decide cuáles aceptas y confírmalos. Este plan queda en el historial</span>
           </div>
-          <ButtonLink href="/camino/nuevo" variant="secondary" size="sm">
+          <ButtonLink href="/camino/nuevo?replan=1" variant="secondary" size="sm">
             Replanificar
           </ButtonLink>
         </div>
-        <div className={`${c.setRow} ${c.setDanger}`}>
-          <div>
-            <b>Eliminar el camino</b>
-            <span className={c.muted}>Borra fases, hitos, notas y revisiones. Las tareas se conservan en Tareas.</span>
+        {openVersion ? <PlanVersionDrawer organizationId={organizationId} planId={openVersion} onClose={() => setOpenVersion(null)} /> : null}
+        {replacesPlan ? (
+          <div className={c.setRow}>
+            <div>
+              <b>Cambios de esta versión</b>
+              <span className={c.muted}>Qué cambió al replanificar y qué decidiste</span>
+            </div>
+            <Button variant="secondary" size="sm" onClick={() => setOpenVersion(planId)}>Ver cambios</Button>
           </div>
-          {deleteControl}
+        ) : null}
+        {previousPlans.length ? (
+          <div className={c.setRow}>
+            <div>
+              <b>Versiones anteriores</b>
+              {previousPlans.map((previous) => (
+                <span key={previous.id} className={c.muted}>
+                  Versión {previous.version} · {previous.name} · {shortDate(previous.created_at)}{" "}
+                  <Button variant="ghost" size="sm" onClick={() => setOpenVersion(previous.id)}>Ver</Button>
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+export function PlanDanger({ deleteControl }: { deleteControl: ReactNode }) {
+  return (
+    <section className={c.panel} aria-label="Zona de peligro">
+      <div className={`${c.setRow} ${c.setDanger}`}>
+        <div>
+          <b>Eliminar el camino</b>
+          <span className={c.muted}>Borra fases, hitos, notas y revisiones. Las tareas se conservan en Tareas.</span>
         </div>
+        {deleteControl}
       </div>
     </section>
   );

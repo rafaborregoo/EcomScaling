@@ -34,6 +34,7 @@ export const refetch = (path: string) => load(path).catch(() => {});
 export function useApi<T>(path: string | null) {
   const [data, setData] = useState<T | null>(() => (path ? ((cache.get(path)?.data as T | undefined) ?? null) : null));
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -51,10 +52,13 @@ export function useApi<T>(path: string | null) {
     const hit = cache.get(path);
     setData((hit?.data as T | undefined) ?? null);
     setError(null);
+    setErrorCode(null);
     if (hit && tick === 0 && Date.now() - hit.at < FRESH_MS) return;
     load<T>(path).then(
       (d) => !stale && setData(d),
-      (e: Error) => !stale && !hit && setError(e.message),
+      (e: Error & { code?: string | null }) => {
+        if (!stale && !hit) { setError(e.message); setErrorCode(e.code ?? null); }
+      },
     );
     return () => {
       stale = true;
@@ -67,10 +71,12 @@ export function useApi<T>(path: string | null) {
     try {
       setData(await load<T>(path));
       setError(null);
+      setErrorCode(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo cargar.");
+      setErrorCode(e instanceof Error && "code" in e && typeof e.code === "string" ? e.code : null);
     }
   }, [path]);
 
-  return { data, error, reload, retry: () => setTick((t) => t + 1) };
+  return { data, error, errorCode, reload, retry: () => setTick((t) => t + 1) };
 }

@@ -106,3 +106,22 @@ export function canShowProfit(input: {
     input.itemsWithoutCost === 0 &&
     input.linesWithoutNetMetrics === 0;
 }
+export type FinancialComparabilityView = {
+  status: "comparable" | "estimated" | "incomplete" | "incompatible" | "unknown" | "not_assessable";
+  can_use_financial_model: boolean;
+  reason_codes: string[];
+  currency_status?: "compatible" | "incompatible" | "unknown";
+};
+
+export function financialComparabilityMessage(coverage?: FinancialComparabilityView) {
+  const reasons = coverage?.reason_codes ?? [];
+  if (reasons.includes("shopify_source_stale_or_unavailable") || reasons.includes("ads_source_stale_or_unavailable")) return "Actualiza las conexiones y espera a que termine la sincronización para verificar la rentabilidad.";
+  if (reasons.includes("financial_currency_mismatch") || reasons.includes("financial_currency_unknown")) return "Confirma las monedas de ventas, costes y publicidad antes de comparar la rentabilidad.";
+  if (reasons.includes("product_costs_missing")) return "Completa los costes de los productos vendidos para verificar la rentabilidad.";
+  if (reasons.includes("organization_fixed_costs_unallocated_between_stores")) return "Revisa cómo repartir los gastos compartidos entre las tiendas antes de comparar su rentabilidad.";
+  if (reasons.includes("order_totals_basis_unverified") || reasons.includes("order_totals_not_reconciled") || reasons.includes("refund_snapshot_pending") || reasons.includes("order_line_metrics_missing")) return "Completa una sincronización de Shopify para verificar importes y devoluciones.";
+  if (reasons.includes("current_cost_used_for_historical_order") || reasons.includes("order_line_metrics_estimated")) return "La rentabilidad es una estimación: revisa los costes históricos y los importes de los pedidos.";
+  if (reasons.includes("partial_utc_days_not_comparable_to_daily_ads")) return "La rentabilidad es una estimación: el periodo incluye días parciales y la publicidad se registra por día completo.";
+  if (coverage?.status === "not_assessable") return "No hay ingresos positivos suficientes para comparar rentabilidad en este periodo.";
+  return "Faltan datos verificados para comparar rentabilidad. Revisa costes, importes y sincronización.";
+}

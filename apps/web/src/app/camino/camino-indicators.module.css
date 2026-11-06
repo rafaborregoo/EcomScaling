@@ -1,0 +1,109 @@
+/* Indicadores del plan: tarjetas que dicen cómo va cada cifra frente a su
+   objetivo. El detalle técnico de la medición queda plegado. */
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  color: #5f5b58;
+  font-size: 14px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px;
+  border-radius: var(--glass-radius);
+  background: var(--glass-surface);
+  box-shadow: var(--glass-edge);
+  color: #2f2d2c;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+}
+.head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.value {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.target {
+  margin: 0;
+  color: #5f5b58;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  color: #5f5b58;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.reason {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0;
+  color: #5f5b58;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.period {
+  margin: 0;
+  color: #857f7a;
+  font-size: 12px;
+}
+.period:empty { display: none; }
+
+.more {
+  color: #5f5b58;
+  font-size: 14px;
+}
+.more [data-slot="collapsible-trigger"] {
+  width: fit-content;
+  font-weight: 500;
+  cursor: pointer;
+}
+.more [data-slot="collapsible-trigger"]:hover { color: #2f2d2c; }
+
+.actualForm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.ask { justify-self: start; }
+.history { display: grid; gap: 6px; font-size: 14px; }
+.history ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.history li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 12px; }

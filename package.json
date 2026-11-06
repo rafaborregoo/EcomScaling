@@ -20,6 +20,7 @@
     "typecheck": "npm run build:packages && npm run build -w @e-nora/api && npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:financial:sql": "node --test scripts/imp02-financial-sql.test.mjs",
     "verify": "node scripts/verify.mjs",
     "test:agent-release-preflight": "node --test scripts/agent-release-migration-preflight.test.mjs",
     "verify:agent-judge-release-gate": "dotenv -e .env.local -- node scripts/verify-agent-judge-release-gate.mjs",
@@ -45,7 +46,10 @@
     "supabase:start": "supabase start",
     "supabase:reset": "supabase db reset",
     "conocimiento:ingest": "dotenv -e .env.local -- node scripts/ingest-conocimiento.mjs",
-    "conocimiento:test": "node --test scripts/ingest-conocimiento.test.mjs",
+    "conocimiento:test": "node --test scripts/ingest-conocimiento.test.mjs scripts/knowledge-release.test.mjs",
+    "conocimiento:release": "node scripts/knowledge-release.mjs",
+    "conocimiento:release:build": "node scripts/build-meta-knowledge-release.mjs",
+    "conocimiento:release:local": "tsx scripts/imp04-knowledge-local.mts",
     "conocimiento:archiva": "dotenv -e .env.local -- node scripts/archiva-conocimiento-global.mjs",
     "conocimiento:ingest:prod": "dotenv -e .env.production.local -v API_URL=https://api.ecom.noraapp.es -- node scripts/ingest-conocimiento.mjs",
     "conocimiento:archiva:prod": "dotenv -e .env.production.local -- node scripts/archiva-conocimiento-global.mjs",
@@ -54,7 +58,8 @@
     "seed:finanzas": "dotenv -e .env.local -- tsx scripts/seed-configuracion-financiera.ts",
     "seed:agentes-demo": "dotenv -e .env.local -- node scripts/seed-agentes-demo.mjs",
     "test:a24:db": "dotenv -e .env.local -- node --test scripts/a24-measurement-remote.test.mjs",
-    "test:a26:db": "dotenv -e .env.local -- node --test scripts/a26-content-remote.test.mjs"
+    "test:a26:db": "dotenv -e .env.local -- node --test scripts/a26-content-remote.test.mjs",
+    "test:approval:sql": "node --test scripts/imp03-approval-sql.test.mjs"
   },
   "devDependencies": {
     "@shopify/cli": "^4.8.2",

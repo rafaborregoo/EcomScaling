@@ -145,6 +145,7 @@ function EmailDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <div><dt>Bajas</dt><dd>{pct(entity.unsub_rate, 2)}</dd><small>lo normal: menos de 0,5 %</small></div>
           </dl>
           <div className={s.actions}>
+            {!flow ? <Link className={buttonVariants({ variant: "secondary" })} href={`/klaviyo/campanas/${entity.id}?${backParams.toString()}`}>Ver email, resultados y valoración</Link> : null}
             <button type="button" className={buttonVariants()} onClick={() => askCopilot("Explícame cómo funciona este email y qué cambiarías", "Ficha de email")}>
               <span className={pulse.ia} style={{ background: "var(--on-accent)", color: "var(--accent)" }}>IA</span>
               Preguntar qué haría
@@ -160,7 +161,7 @@ function EmailDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
       <div className={s.checks} role="group" aria-label="Fiabilidad de los datos">
         <div className={s.check}>
           <div className={s.checkH}><span>Atribución</span><span className={cx(pulse.chip, pulse.chipWarn)}>de Klaviyo</span></div>
-          <p>Ventas de los 5 días después de abrir o pulsar el email. No se suman a las de Meta.</p>
+          <p>Resultados atribuidos según la configuración de Klaviyo. La ventana de esta cuenta no está verificada aquí. No se suman a los de Meta.</p>
         </div>
         <div className={s.check}>
           <div className={s.checkH}><span>UTM</span><span className={cx(pulse.chip, entity.has_utm ? pulse.chipGood : pulse.chipWarn)}>{entity.has_utm ? "OK" : "faltan"}</span></div>

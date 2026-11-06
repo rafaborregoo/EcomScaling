@@ -1,0 +1,207 @@
+{
+  "status": "passed",
+  "release_digest": "0841644e23182a75c00ec3c7d6550fd432abf590e0a7c10e596182473ae65658",
+  "profile": {
+    "version": "structural-v4",
+    "model": "voyage-context-4",
+    "dimensions": 1024,
+    "maxChars": 1500,
+    "overlapChars": 200
+  },
+  "checks": [
+    {
+      "name": "nine targets have one active version each and the configured Voyage space",
+      "ok": true
+    },
+    {
+      "name": "retrieval META-RAG-01",
+      "ok": true
+    },
+    {
+      "name": "retrieval META-RAG-02",
+      "ok": true
+    },
+    {
+      "name": "retrieval META-RAG-03",
+      "ok": true
+    },
+    {
+      "name": "retrieval META-RAG-04",
+      "ok": true
+    },
+    {
+      "name": "retrieval META-RAG-05",
+      "ok": true
+    },
+    {
+      "name": "retrieval META-RAG-06",
+      "ok": true
+    },
+    {
+      "name": "retrieval META-RAG-07",
+      "ok": true
+    },
+    {
+      "name": "retrieval META-RAG-08",
+      "ok": true
+    },
+    {
+      "name": "retrieval META-RAG-09",
+      "ok": true
+    },
+    {
+      "name": "retrieval META-RAG-10",
+      "ok": true
+    },
+    {
+      "name": "retrieval META-RAG-11",
+      "ok": true
+    },
+    {
+      "name": "retrieval META-RAG-12",
+      "ok": true
+    },
+    {
+      "name": "stale replacement leaves the document and its chunks unchanged",
+      "ok": true
+    },
+    {
+      "name": "an invalid vector rolls back the complete replacement transaction",
+      "ok": true
+    },
+    {
+      "name": "retrieval preserves organization, store and audience with an adversarial identical embedding",
+      "ok": true
+    },
+    {
+      "name": "authenticated RLS cannot expand scope by passing another tenant to the RPC",
+      "ok": true
+    },
+    {
+      "name": "retired, deleted and superseded sources never enter active retrieval",
+      "ok": true
+    },
+    {
+      "name": "rollback restores the six previous contents and retires the three new documents",
+      "ok": true
+    },
+    {
+      "name": "rollback also removes all new document IDs from retrieval",
+      "ok": true
+    }
+  ],
+  "retrieval": [
+    {
+      "id": "META-RAG-01",
+      "question": "¿Un anuncio activo sin impresiones demuestra un problema creativo si no puedo comprobar la facturación?",
+      "expected_paths": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K01_activos_medicion_e_incidencias.md"
+      ],
+      "matched_rank": 1,
+      "citations_verified": true
+    },
+    {
+      "id": "META-RAG-02",
+      "question": "¿Una discrepancia entre compras Shopify y compras Meta prueba que el píxel está roto?",
+      "expected_paths": [
+        "conocimiento/fase-05/01-rag-produccion/5.02-atribucion-incrementalidad-calidad-y-madurez.md"
+      ],
+      "matched_rank": 1,
+      "citations_verified": true
+    },
+    {
+      "id": "META-RAG-03",
+      "question": "¿Con dos compras puedo declarar un ganador y cambiar presupuesto tras siete días fijos?",
+      "expected_paths": [
+        "conocimiento/fase-05/01-rag-produccion/5.02-estructura-audiencias-creative-y-testing.md"
+      ],
+      "matched_rank": 1,
+      "citations_verified": true
+    },
+    {
+      "id": "META-RAG-04",
+      "question": "¿Un ROAS alto confirma beneficio si faltan costes y devoluciones conciliadas?",
+      "expected_paths": [
+        "conocimiento/fase-05/01-rag-produccion/5.04-oferta-pricing-y-economics.md"
+      ],
+      "matched_rank": 1,
+      "citations_verified": true
+    },
+    {
+      "id": "META-RAG-05",
+      "question": "¿El LTV futuro previsto permite financiar pérdidas de adquisición sin comprobar payback y caja?",
+      "expected_paths": [
+        "conocimiento/fase-05/01-rag-produccion/5.05-retencion-cohortes-ltv-y-economia-de-relacion.md"
+      ],
+      "matched_rank": 1,
+      "citations_verified": true
+    },
+    {
+      "id": "META-RAG-06",
+      "question": "¿Priorizar un bundle con AOV más alto aunque aporte menos contribución y falte stock?",
+      "expected_paths": [
+        "conocimiento/fase-05/01-rag-produccion/5.04-aov-bundles-cross-sell-y-ofertas-de-valor.md"
+      ],
+      "matched_rank": 1,
+      "citations_verified": true
+    },
+    {
+      "id": "META-RAG-07",
+      "question": "¿Cómo analizar reseñas duplicadas y evitar inferir atributos sensibles de personas?",
+      "expected_paths": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K02_investigacion_personas_y_evidencia_creativa.md"
+      ],
+      "matched_rank": 1,
+      "citations_verified": true
+    },
+    {
+      "id": "META-RAG-08",
+      "question": "¿Un anuncio de competidor activo seis meses demuestra su ROAS o rentabilidad?",
+      "expected_paths": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K02_investigacion_personas_y_evidencia_creativa.md"
+      ],
+      "matched_rank": 3,
+      "citations_verified": true
+    },
+    {
+      "id": "META-RAG-09",
+      "question": "¿Una miniatura permite describir el guion y audio completo de un vídeo?",
+      "expected_paths": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K03_briefs_inventario_y_brechas_creativas.md"
+      ],
+      "matched_rank": 1,
+      "citations_verified": true
+    },
+    {
+      "id": "META-RAG-10",
+      "question": "¿Una celda creativa vacía demuestra una brecha cuando el inventario está incompleto?",
+      "expected_paths": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K03_briefs_inventario_y_brechas_creativas.md"
+      ],
+      "matched_rank": 1,
+      "citations_verified": true
+    },
+    {
+      "id": "META-RAG-11",
+      "question": "¿Cómo ligar el brief y roadmap creativo a responsables, capacidad y revisión sin publicar automáticamente?",
+      "expected_paths": [
+        "conocimiento/meta-ads/01-rag-produccion/META-K03_briefs_inventario_y_brechas_creativas.md"
+      ],
+      "matched_rank": 1,
+      "citations_verified": true
+    },
+    {
+      "id": "META-RAG-12",
+      "question": "¿Muchos clics y pocas visitas prueban que la landing es lenta sin medir su rendimiento?",
+      "expected_paths": [
+        "conocimiento/fase-05/01-rag-produccion/5.01-playbooks-de-adquisicion-y-diversificacion.md"
+      ],
+      "matched_rank": 1,
+      "citations_verified": true
+    }
+  ],
+  "voyage_requests_this_run": 0,
+  "cached_inputs": 27,
+  "corpus_chars": 106955,
+  "scope": "isolated local PostgreSQL with real Voyage vectors; no remote database writes"
+}

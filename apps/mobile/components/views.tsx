@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
 import { Send } from "lucide-react-native";
-import { useApi } from "../lib/use-api";
+import { refetch, useApi } from "../lib/use-api";
+import { A02MobileSlot, a02MobilePath } from "./a02-reading";
 import { c, fmtCurrency, fmtNum, font, klaviyo } from "../lib/theme";
 import { Bars, RateBars, Strip, Tunnel } from "./bloques";
 import { AllClear, Block, ChannelRow, Hero, MoreLink, TODAY, TopBar, type HeroMetric } from "./inicio";
@@ -175,10 +176,9 @@ export function TodoView({ org, nav }: { org: Org; nav: HomeNav }) {
   // Veredictos por reglas (sin IA) del periodo de Métricas: lo que esté en rojo sale en Para hoy.
   const analyst = useAnalyst(org, 30);
   // Los tres agentes que proponen tareas (igual que el Dashboard de la web). Son lecturas de su último análisis.
-  const monitor = useApi<Diagnostic>(`${base}/ai/monitor?days=30&view=overview`);
   const stockAi = useApi<Diagnostic>(`${base}/ai/stock-planner?days=30`);
   const emailAi = useApi<Diagnostic>(withStore(org, `${base}/ai/email-analyst`));
-  const reloadProposals = () => void Promise.all([monitor.reload(), stockAi.reload(), emailAi.reload(), ops.reload()]);
+  const reloadProposals = () => void Promise.all([stockAi.reload(), emailAi.reload(), ops.reload()]);
 
   const ms = meta.data?.summary ?? null;
   const mb = metaBefore(ms, meta2.data?.summary);
@@ -190,7 +190,7 @@ export function TodoView({ org, nav }: { org: Org; nav: HomeNav }) {
   const business = d && days !== TODAY ? businessMetric(d, shop2.data) : null;
   const metrics: HeroMetric[] = days === TODAY ? (today.data ? todayMetrics(today.data) : []) : d ? [...(business ? [business] : []), ...salesMetrics(d, false)] : [];
 
-  const diagnostics = [monitor.data, stockAi.data, emailAi.data];
+  const diagnostics = [stockAi.data, emailAi.data];
   // Propuestas de la IA y reponer stock son del cliente: el consultor no los ve en su Pulso.
   const pendingCount = org.isConsultant ? 0 : pendingDiagnostics(diagnostics).length;
   const alertCount = ops.data ? sortAlerts(ops.data.alerts ?? []).length : 0;
@@ -199,10 +199,11 @@ export function TodoView({ org, nav }: { org: Org; nav: HomeNav }) {
   const clear = !!ops.data && pendingCount + alertCount + taskCount + (org.isConsultant ? 0 : stockCount(stock.data)) + badMetrics(analyst).length === 0;
 
   return (
-    <Screen flat title="Pulso" onRefresh={async () => void (await Promise.all([shop.reload(), today.reload(), shop2.reload(), meta.reload(), meta2.reload(), mail.reload(), ops.reload(), stock.reload(), analyst.reload(), monitor.reload(), stockAi.reload(), emailAi.reload()]))}>
+    <Screen flat title="Pulso" onRefresh={async () => void (await Promise.all([shop.reload(), today.reload(), shop2.reload(), meta.reload(), meta2.reload(), mail.reload(), ops.reload(), stock.reload(), analyst.reload(), refetch(a02MobilePath(org.id, org.connectionId)), stockAi.reload(), emailAi.reload()]))}>
       <TopBar name={org.isConsultant ? "" : org.name} options={[TODAY, 7, 30, 90]} days={days} onChange={setDays} />
       <Status error={(days === TODAY ? today.error : null) ?? shop.error} loading={metrics.length === 0} retry={() => { shop.retry(); today.retry(); }} />
       {metrics.length > 0 && <Hero key={days === TODAY ? "hoy" : "periodo"} metrics={metrics} compare={compareOf(days)} />}
+      <A02MobileSlot key={`${org.id}:${org.connectionId ?? "all"}`} organizationId={org.id} connectionId={org.connectionId} onChannel={nav.onTab} />
 
       {ops.data && (
         <Block title="Para hoy">

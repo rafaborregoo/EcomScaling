@@ -1,0 +1,39 @@
+.reading {
+  min-width: 0;
+  padding-block: 16px;
+  border-block-end: 1px solid var(--line-2, var(--border, #ebe8e4));
+  color: var(--ink, var(--foreground, #3d3b3a));
+  font-family: var(--f-body, inherit);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
+.tag { flex-shrink: 0; padding: 2px 6px; border: 1px solid var(--line, #e2dfdc); border-radius: 4px; font-size: 11px; font-weight: 600; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.label { font-weight: 600; }
+.status { color: var(--warn, #8b4c0d); font-size: 12px; }
+.summary { max-width: 75ch; margin: 0; overflow-wrap: anywhere; }
+.meta { margin: 4px 0 0; color: var(--ink-2, var(--muted, #6b6662)); font-size: 12px; line-height: 1.5; }
+.reading[data-state="loading"] .summary,
+.reading[data-state="pending"] .summary,
+.reading[data-state="empty"] .summary,
+.reading[data-state="not_covered"] .summary { color: var(--ink-2, var(--muted, #6b6662)); }
+.disclosure { margin-top: 4px; }
+.trigger { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 4px 0; border: 0; background: transparent; color: inherit; font: inherit; font-size: 13px; text-align: start; cursor: pointer; }
+.trigger:hover, .link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.trigger:focus-visible, .link:focus-visible { outline: 2px solid var(--accent, #6256c9); outline-offset: 3px; border-radius: 4px; }
+.findings { display: grid; gap: 16px; margin: 8px 0 0; padding: 0; list-style: none; }
+.findings > li { min-width: 0; padding-block-end: 12px; border-block-end: 1px solid var(--line-2, #ebe8e4); }
+.findingTitle { margin: 0; font-weight: 600; }
+.evidence { max-width: 75ch; margin: 6px 0; color: var(--ink-2, #6b6662); overflow-wrap: anywhere; }
+.figures { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 8px 0; }
+.figures > div { min-width: 0; }
+.figures dt { color: var(--ink-2, #6b6662); font-size: 12px; overflow-wrap: anywhere; }
+.figures dd { margin: 2px 0 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.figures dd span { color: var(--ink-2, #6b6662); font-size: 12px; font-weight: 400; }
+.link { display: inline-flex; align-items: center; min-height: 36px; color: inherit; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+.recommendations { margin-top: 12px; }
+.recommendations ul { display: grid; gap: 6px; margin: 6px 0; padding-inline-start: 18px; }
+@media (max-width: 640px) {
+  .trigger, .link { min-height: 44px; }
+  .figures { gap: 8px 16px; }
+}

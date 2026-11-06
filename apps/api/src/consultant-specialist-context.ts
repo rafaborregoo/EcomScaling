@@ -472,9 +472,10 @@ export function summarizeRecentSpecialistOutputs(
         agent_version: shortText(version?.version, 32),
         run_status: "succeeded",
         output_status: outputRow.status,
+        inherited_execution_authorized: false,
         approval_note: outputRow.status === "pending_approval"
-          ? "Análisis sin revisar por el consultor: úsalo como indicio, no como conclusión validada."
-          : null,
+          ? "Análisis pendiente de decisión: úsalo como indicio, nunca como escritura autorizada."
+          : "El estado de la salida no acredita quién la revisó ni autoriza nuevas escrituras. Cada propuesta necesita su propia decisión.",
         store_id: row.store_id,
         as_of: new Date(finishedAtMs).toISOString(),
         valid_until: new Date(finishedAtMs + freshnessDays * 24 * 60 * 60 * 1000).toISOString(),

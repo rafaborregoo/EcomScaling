@@ -23,6 +23,18 @@ junto con [`docs/PLAN_MAESTRO_CONOCIMIENTO_A_SOFTWARE.md`](../docs/PLAN_MAESTRO_
 Este README y el prompt de clasificación de abajo son para el paso anterior:
 convertir un `.md` de origen en las 8 capas.
 
+## Entrega curada Meta Ads V1–V3
+
+[IMP-04](../Meta%20Ads-Instagram/implementacion/IMP04_CURACION_INGESTION_CONOCIMIENTO_2026-11-03.md)
+documenta los 30 módulos, seis ampliaciones y tres fichas nuevas. Su
+[manifiesto](meta-ads/99-auditoria/release-v1.json) fija fuentes, destinos,
+hashes y versiones de partida. `npm run conocimiento:release` prepara un plan
+sin escribir; la aplicación requiere el digest exacto revisado y un administrador.
+Esta entrega selecciona documentos, sin archivar otros textos de sus carpetas.
+La activación remota queda para la publicación final. Las bases y los registros
+de `99-auditoria` no se ingieren. Prueba aislada con Voyage:
+`npm run conocimiento:release:local` (requiere Docker y clave configurada).
+
 ## Estructura por fase
 
 Cada `fase-XX/` tiene 8 capas (ver `Prompt maestro — Clasificacion y

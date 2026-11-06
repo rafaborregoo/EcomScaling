@@ -16,7 +16,7 @@ export function PublicCompactNav() {
   }, []);
   return (
     <div className={styles.compact} data-on={on} aria-hidden={!on}>
-      <Link href="/como-funciona" aria-label="E-NORA, inicio" tabIndex={on ? 0 : -1} className={styles.compactLogo}><BrandLogo /></Link>
+      <Link href="/" aria-label="E-NORA, inicio" tabIndex={on ? 0 : -1} className={styles.compactLogo}><BrandLogo /></Link>
       <Link href="/login" tabIndex={on ? 0 : -1} className={styles.compactLogin}>Ingresar</Link>
     </div>
   );

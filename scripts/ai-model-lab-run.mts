@@ -2,6 +2,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
 import { resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
+import { labImages } from "./ai-model-lab-images.mjs";
 import { aiModelLabReportSchema } from "../packages/contracts/src/ai-model-lab.js";
 import {
   caminoPlanOutputSchema,
@@ -15,6 +16,8 @@ import {
   klaviyoEmailGenerationOutputSchema,
   metaAdsOutputSchema,
   instagramPostOutputSchema,
+  buildA13OperationalOutputContract,
+  instagramImageAnalysisSchema,
 } from "../packages/ai/src/index.js";
 import {
   normalizeOutput,
@@ -182,6 +185,7 @@ async function runModel(model: (typeof report.models)[number]) {
     if (schema && hash(schema) !== testCase.schema_hash)
       throw new Error("lab_schema_hash_mismatch");
     const timeoutMs = testCase.timeout_ms ?? 150_000;
+    const images = await labImages(dir, input.image_files);
     const args =
       provider === "anthropic"
         ? [
@@ -189,7 +193,8 @@ async function runModel(model: (typeof report.models)[number]) {
             "--model",
             row.model_id,
             "--output-format",
-            "json",
+            images.length ? "stream-json" : "json",
+            ...(images.length ? ["--verbose"] : []),
             "--tools",
             "",
             "--safe-mode",
@@ -197,6 +202,7 @@ async function runModel(model: (typeof report.models)[number]) {
             "--no-session-persistence",
             "--system-prompt",
             input.system,
+            ...(images.length ? ["--input-format", "stream-json"] : []),
             ...(schema
               ? [
                   "--json-schema",
@@ -223,13 +229,14 @@ async function runModel(model: (typeof report.models)[number]) {
               ? ["--output-schema", resolve(dir, testCase.schema_file)]
               : []),
             "--json",
+            ...images.flatMap((image) => ["--image", image.path]),
             "-",
           ];
     const result = await invoke(
       provider === "anthropic" ? claude : "codex",
       args,
       provider === "anthropic"
-        ? input.prompt
+        ? images.length ? JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text: input.prompt }, ...images.map((image) => ({ type: "image", source: image.source }))] } }) + "\n" : input.prompt
         : `${input.system}\n\n${input.prompt}\n\nNo uses las herramientas de Codex: esta prueba solo admite los datos entregados.`,
       timeoutMs,
     );
@@ -240,7 +247,9 @@ async function runModel(model: (typeof report.models)[number]) {
     if (provider === "anthropic") {
       let parsed: any;
       try {
-        parsed = JSON.parse(result.stdout);
+        parsed = images.length
+          ? result.stdout.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line)).findLast((event) => event.type === "result")
+          : JSON.parse(result.stdout);
       } catch {
         failure ||= "La CLI no devolvió un resultado JSON interpretable.";
       }
@@ -337,22 +346,26 @@ async function runModel(model: (typeof report.models)[number]) {
             : testCase.agent_code === "a02_monitor_negocio"
               ? monitorOutputSchema.safeParse(parseOutput(row.raw_response))
                   .success
-              : testCase.agent_code === "a06_planificador_stock"
+              : testCase.agent_code === "a06_planificador_stock" || testCase.agent_code === "a12_analista_email" || testCase.agent_code === "a14_operativa_meta"
                 ? agentOutputSchema.safeParse(parseOutput(row.raw_response)).success
               : testCase.agent_code === "a05_estrategia_campanas"
                 ? currentCampaignPlanOutputSchema.safeParse(parseOutput(row.raw_response)).success
-              : testCase.agent_code === "a04_generador_tareas"
+              : ["a04_generador_tareas", "a17_plan_semanal", "a18_plan_mensual"].includes(testCase.agent_code)
                 ? (() => {
                     const result = buildLeanOutputContract([
                       "findings",
                       "recommendations",
                     ]).schema.safeParse(parseOutput(row.raw_response));
                     return (
-                      result.success && result.data.proposed_writes.length <= 5
+                      result.success && (testCase.agent_code !== "a04_generador_tareas" || result.data.proposed_writes.length <= 5)
                     );
                   })()
                 : testCase.agent_code === "a08_gestor_conocimiento"
                   ? buildReadOnlyOutputContract().schema.safeParse(parseOutput(row.raw_response)).success
+                : testCase.agent_code === "a13_operativa_shopify"
+                  ? buildA13OperationalOutputContract().schema.safeParse(parseOutput(row.raw_response)).success
+                : testCase.agent_code === "a15_analista_imagenes"
+                  ? instagramImageAnalysisSchema.safeParse(parseOutput(row.raw_response)).success
                 : testCase.agent_code === "a11_generador_marketing"
                   ? (testCase.schema_file?.includes("meta") ? metaAdsOutputSchema : testCase.schema_file?.includes("instagram") ? instagramPostOutputSchema : klaviyoEmailGenerationOutputSchema).safeParse(parseOutput(row.raw_response)).success
                 : null

@@ -37,6 +37,7 @@ export function FlowsView({
   onOpenPiece,
   onNewPiece,
   basePath = "/marketing",
+  isConsultant = false,
 }: {
   organizationId: string;
   workspace: KWorkspace | undefined;
@@ -44,6 +45,7 @@ export function FlowsView({
   onOpenPiece: (draftId: string) => void;
   onNewPiece: () => void;
   basePath?: string;
+  isConsultant?: boolean;
 }) {
   const askCopilot = useCopilotAsk();
   const router = useRouter();
@@ -193,7 +195,7 @@ export function FlowsView({
   if (!workspace?.connected) {
     return (
       <div className={s.root}>
-        <Header onNew={() => openFlow("new")} />
+        <Header onNew={() => openFlow("new")} isConsultant={isConsultant} />
         {designSection}
         <EmptyState
           title="Los flows viven en Klaviyo"
@@ -215,7 +217,7 @@ export function FlowsView({
 
   return (
     <div className={s.root}>
-      <Header onNew={() => openFlow("new")} />
+      <Header onNew={() => openFlow("new")} isConsultant={isConsultant} />
       <StatusStrip
         items={[
           {
@@ -296,7 +298,7 @@ export function FlowsView({
                         })
                       }
                     >
-                      Analizar con el Consultor IA
+                      Analizar con NORA
                     </Button>
                   </div>
                 </div>
@@ -309,7 +311,7 @@ export function FlowsView({
   );
 }
 
-function Header({ onNew }: { onNew: () => void }) {
+function Header({ onNew, isConsultant }: { onNew: () => void; isConsultant: boolean }) {
   return (
     <div className={s.head}>
       <div className="client-sr-title">
@@ -317,7 +319,8 @@ function Header({ onNew }: { onNew: () => void }) {
         <p>Tus automatizaciones de Klaviyo: qué está activo, cuánto rinde cada email y qué falta.</p>
       </div>
       <div className={s.acts}>
-        <ButtonLink href="/klaviyo#revision-contenido-email" variant="secondary">Revisión de contenido A26</ButtonLink>
+        {/* La revisión vive en los especialistas de /klaviyo, que solo ve el consultor */}
+        {isConsultant ? <ButtonLink href="/klaviyo#revision-contenido-email" variant="secondary">Revisión de contenido A26</ButtonLink> : null}
         <Button onClick={onNew}>Nuevo flow</Button>
       </div>
     </div>

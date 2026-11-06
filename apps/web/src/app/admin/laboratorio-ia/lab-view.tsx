@@ -5,7 +5,7 @@ import { CopilotCreditPolicy } from "@/components/copilot-credit-policy";
 import { MarketingLabPreview } from "./marketing-preview";
 import { CampaignPlanPreview } from "./campaign-plan-preview";
 import type { AiModelLabReport, AiModelLabResult } from "@e-nora/contracts";
-import { A01_MODEL_DECISION, A08_MODEL_DECISION, getAgentModelDecision } from "@e-nora/contracts";
+import { A01_MODEL_DECISION, A08_MODEL_DECISION, A12_MODEL_DECISION, A13_MODEL_DECISION, A14_MODEL_DECISION, A15_MODEL_DECISION, getAgentModelDecision } from "@e-nora/contracts";
 import { PlatformAdminShell } from "@/components/platform-admin-shell";
 import {
   ScrollArea,
@@ -505,6 +505,26 @@ function ResultPanel({
   );
 }
 
+function A15Fields({ report, caseId, left, right }: { report: AiModelLabReport; caseId: string; left: string; right: string }) {
+  const read = (model: string): Record<string, unknown> => {
+    const raw = report.results.find((row) => row.case_id === caseId && row.model_id === model)?.raw_response;
+    try { const parsed: unknown = JSON.parse(raw ?? "{}"); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}; } catch { return {}; }
+  };
+  const a = read(left), b = read(right);
+  const labels = { description: "Descripción", objects: "Objetos", colors: "Colores estimados", style: "Estilo", composition: "Composición", aspect_ratio_estimate: "Formato", ocr_text: "Texto leído", suggested_use: "Uso propuesto", inferences: "Inferencias separadas", alt_text: "Texto alternativo", confidence: "Confianza", visible_message: "Mensaje visible", visible_call_to_action: "CTA visible", design_findings: "Hallazgos y mejoras", ocr_segments: "OCR por región" };
+  return <Accordion><AccordionItem value="a15-native-fields"><AccordionTrigger>Comparar todos los campos visuales de los dos modelos seleccionados</AccordionTrigger><AccordionContent><DataTable ariaLabel="Comparación de campos visuales de A15" rows={Object.entries(labels).map(([id,label]) => ({ id,label,left:a[id],right:b[id] }))} pageSize={15} columns={[{key:"label",label:"Campo"},{key:"left",label:report.models.find(m=>m.id===left)?.label??left,render:row=><ReadableValue value={row.left}/>},{key:"right",label:report.models.find(m=>m.id===right)?.label??right,render:row=><ReadableValue value={row.right}/>}]} /></AccordionContent></AccordionItem></Accordion>;
+}
+
+function A16Fields({ report, caseId, left, right }: { report: AiModelLabReport; caseId: string; left: string; right: string }) {
+  const read = (model: string): Record<string, unknown> => {
+    const raw = report.results.find((row) => row.case_id === caseId && row.model_id === model)?.raw_response;
+    try { const parsed: unknown = JSON.parse(raw ?? "{}"); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}; } catch { return {}; }
+  };
+  const a = read(left), b = read(right);
+  const labels = { blocks: "Texto, jerarquía y coordenadas por bloque", palette: "Paleta", rationale: "Justificación y límites" };
+  return <Accordion><AccordionItem value="a16-native-fields"><AccordionTrigger>Comparar copy y composición de los dos modelos</AccordionTrigger><AccordionContent><DataTable ariaLabel="Comparación de copy y coordenadas A16" rows={Object.entries(labels).map(([id,label]) => ({ id,label,left:a[id],right:b[id] }))} pageSize={3} columns={[{key:"label",label:"Campo"},{key:"left",label:report.models.find(m=>m.id===left)?.label??left,render:row=><ReadableValue value={row.left}/>},{key:"right",label:report.models.find(m=>m.id===right)?.label??right,render:row=><ReadableValue value={row.right}/>}]} /></AccordionContent></AccordionItem></Accordion>;
+}
+
 function AgentResults({
   report,
   code,
@@ -548,6 +568,20 @@ function AgentResults({
           ? cases.find((c) => c.id === "a06_planificador_stock:real-store-runtime-2026-10-31")
         : code === "a08_gestor_conocimiento"
           ? cases.find((c) => c.id === "a08_gestor_conocimiento:real-org-methodology-runtime-2026-10-31")
+        : code === "a12_analista_email"
+          ? cases.find((c) => c.id === "a12_analista_email:real-store-runtime-2026-11-02-normalized")
+        : code === "a13_operativa_shopify"
+          ? cases.find((c) => c.id === "a13_operativa_shopify:real-store-runtime-2026-11-03-calendar")
+        : code === "a14_operativa_meta"
+          ? cases.find((c) => c.id === "a14_operativa_meta:real-store-runtime-2026-11-05-readable-account")
+        : code === "a15_analista_imagenes"
+          ? cases.find((c) => c.id === "a15_analista_imagenes:real-store-runtime-2026-11-05-shopify-contract")
+        : code === "a16_texto_sobre_imagen"
+          ? cases.find((c) => c.id === "a16_texto_sobre_imagen:real-store-runtime-2026-11-06-product-coordinates-v7")
+        : code === "a17_plan_semanal"
+          ? cases.find((c) => c.id === "a17_plan_semanal:real-store-runtime-2026-11-06-weekly-v2")
+        : code === "a18_plan_mensual"
+          ? cases.find((c) => c.id === "a18_plan_mensual:real-store-runtime-2026-11-06-monthly-v3")
         : null)?.id ??
       [...cases].reverse().find((c) => c.source !== "missing_data")?.id ??
       cases[0]!.id,
@@ -586,6 +620,24 @@ function AgentResults({
   return (
     <div className="space-y-7">
       {code === "a09_copiloto_consultor" ? <CopilotCreditPolicy /> : null}
+      {code === "a18_plan_mensual" ? (
+        <Banner tone="info" title="A18 · Iniciativas de los próximos treinta días">
+          Seis modelos sobre el mismo histórico mensual, Camino, tareas y especialistas de la tienda TEST.
+          El horizonte empieza en el corte del informe y dura treinta días; no es únicamente el mes calendario siguiente.
+          Una generación cada 27 días por tienda elegible (1,11 por treinta días), compartida por cliente y consultor.
+          Consulta la lectura elegida en <Link href="/tareas#plan-mensual">Tareas · Plan mensual</Link>.
+          Las propuestas requieren revisión y las ejecuciones manuales se suman.
+        </Banner>
+      ) : null}
+      {code === "a17_plan_semanal" ? (
+        <Banner tone="info" title="A17 · Un plan semanal compartido por tienda">
+          Compara seis modelos con las mismas ventas semanales, histórico, Camino y tareas de TEST.
+          Se programa cada seis días por tienda elegible: unas cinco ejecuciones por 30 días.
+          Cliente y consultor leen el mismo resultado en <Link href="/tareas#plan-semanal">Tareas · Plan semanal</Link>.
+          Abrir ambas cuentas no duplica el consumo. Las ejecuciones manuales y los reintentos se suman.
+          Proponer cero tareas es válido si el trabajo necesario ya está cubierto; revisa también la explicación.
+        </Banner>
+      ) : null}
       {code === "a11_generador_marketing" ? <Banner tone="info" title="A11 · La elección final queda pendiente de tu revisión">
         Compara los seis modelos con el mismo caso. Revisa el diseño y el texto, si respetan la marca y los datos, y después el precio de la tabla. A11 se ejecuta al solicitar una pieza: no hay 30 ejecuciones diarias automáticas. La referencia actual de Costes es de cuatro generaciones al mes, una hipótesis que debes ajustar al uso real.
       </Banner> : null}
@@ -648,6 +700,8 @@ function AgentResults({
         {c.input_characters.toLocaleString("es-ES")} caracteres. Las respuestas
         se muestran sin corregirlas.
       </Banner>
+      {code === "a15_analista_imagenes" ? <A15Fields report={report} caseId={c.id} left={left} right={right} /> : null}
+      {code === "a16_texto_sobre_imagen" ? <A16Fields report={report} caseId={c.id} left={left} right={right} /> : null}
       {analysis ? (
         <section
           className="space-y-3 rounded-xl border border-line bg-surface p-5"
@@ -671,9 +725,8 @@ function AgentResults({
           ) : null}
         </section>
       ) : (
-        <Banner tone="info" title="Análisis individual pendiente">
-          Iremos agente por agente. Esta ficha muestra los resultados previstos,
-          pero todavía no asigna un mejor o peor modelo.
+        <Banner tone="info" title={decision ? "Revisión comparada disponible" : "Análisis individual pendiente"}>
+          {decision ? `Modelo elegido: ${decision.label}. Consulta la revisión de cada respuesta y sus límites.` : "Iremos agente por agente. Esta ficha todavía no asigna un mejor o peor modelo."}
         </Banner>
       )}
       {code === "a02_monitor_negocio" ? (
@@ -1316,6 +1369,17 @@ function AgentResults({
             label: "Precio API estimado · USD",
             render: (r: (typeof rows)[number]) => estimatedApiPrice(r.result),
           },
+          ...(["a17_plan_semanal", "a18_plan_mensual"].includes(code) ? [{
+            key: "weekly_monthly_cold",
+            label: code === "a18_plan_mensual" ? "30 días · 1,11 ejecuciones · USD sin caché" : "30 días · 5 ejecuciones · USD sin caché",
+            render: (r: (typeof rows)[number]) => {
+              const usage = r.result?.usage;
+              if (!usage || usage.input === null || usage.output === null) return "Desconocido";
+              const total = r.provider === "anthropic" ? usage.input + (usage.cached ?? 0) + (usage.cache_creation ?? 0) : usage.input;
+              const price = calculateLabApiPrice(r.id, { input: total, cached: 0, cache_creation: 0, output: usage.output });
+              return price ? `${formatUsd(price.low * (code === "a18_plan_mensual" ? 30 / 27 : 5))} estimados` : "Desconocido";
+            },
+          }] : []),
           {
             key: "cli_price",
             label: "Coste CLI informado · USD",
@@ -1715,6 +1779,50 @@ function Content({ code }: { code?: string }) {
               </AccordionContent>
             </AccordionItem>
           </Accordion>
+        </div>
+      ) : code === A13_MODEL_DECISION.agentCode ? (
+        <div className="space-y-5"><section className="space-y-3 rounded-xl border border-line bg-surface p-5"><Badge tone="success">A13 · revisión cerrada</Badge><h2 className="text-2xl font-semibold">Operativa de Shopify · {A13_MODEL_DECISION.label}</h2><p>Sol principal y Terra como segundo modelo dentro de OpenAI. Sol combina ventas, ticket, stock e hitos sin duplicar propuestas. Terra cubre las dos prioridades con menor coste y menos detalle. Este fallback no cubre una caída de todo OpenAI.</p><p>Corregido un fallo que trataba ventas de treinta días como siete al medir el objetivo. Ahora usa el mes natural: 3.847,10 EUR hasta el 3/11 frente a un ritmo de referencia de 7.500; no declara alcanzada la meta con una proyección inflada.</p><p className="font-medium">0,102828 USD por ejecución sin caché · 3,08484 USD por 30 lecturas de tienda · 6,16968 USD incluyendo otras 30 organizativas.</p><p className="text-sm text-muted">Seis modelos, sin Astra, con datos de demostración TEST y contexto runtime. Primera tanda con progreso incorrecto conservada aparte. Frecuencia condicionada a actividad, cupos y presupuesto; CLI no equivale a factura ni prueba de herramientas dinámicas.</p><Link href="/shopify">Ver la lectura en Shopify</Link></section><Accordion><AccordionItem value="a13-comparisons"><AccordionTrigger>Ver las seis respuestas, costes y revisión</AccordionTrigger><AccordionContent><AgentResults report={report} code={code} /></AccordionContent></AccordionItem></Accordion></div>
+      ) : code === A15_MODEL_DECISION.agentCode ? (
+        <div className="space-y-5">
+          <section className="space-y-3 rounded-xl border border-line bg-surface p-5">
+            <Badge tone="success">A15 · Terra principal, Sol de respaldo</Badge>
+            <h2 className="text-2xl font-semibold">Analista de imágenes · {A15_MODEL_DECISION.label}</h2>
+            <p>Doce respuestas finales: seis modelos ven los mismos píxeles de una imagen abstracta del banco y de un producto Shopify de E-NORA Demo. Terra y Sol reconocen el formato, producto y texto, separan inferencias y no exigen un CTA a una foto de catálogo. Terra ofrece cobertura similar por menos coste. Luna confundió la imagen cuadrada con vertical; Opus añade valoraciones comerciales sin brief en el gráfico abstracto.</p>
+            <p>Corregidos el estado de suscripción que impedía ejecutar A15, la divergencia entre contrato enviado y validación de colores, y la coherencia de modelo/fingerprint. Las tandas anteriores y los errores de transporte CLI se conservan como historial; la comparación final usa los dos casos terminados en -contract.</p>
+            <p className="font-medium">Referencia media Terra: 0,028529 USD por imagen · 0,57058 USD por 20 imágenes. Sol: 0,059021 USD por imagen.</p>
+            <p className="text-sm text-muted">Se ejecuta al subir o reanalizar un activo, no cada día por cada rol. Veinte imágenes al mes es un escenario. Incluye visión y sobrecarga CLI según tokens; catálogo de tarifas, sin caché ni factura. Fallback, reintentos y embeddings son adicionales. Dos imágenes no validan todos los sectores, vídeos ni OCR difícil. El fallback de Sol no cubre una caída total de OpenAI.</p>
+            <p>Las dos fichas ganadoras están en el banco de imágenes para cliente y consultor. La ficha antigua de demostración quedó archivada en conocimiento. Las nuevas fichas están disponibles para leer, pendientes de indexación vectorial: esta prueba no consume embeddings de pago.</p>
+            <Link href="/marketing/imagenes">Ver imágenes y análisis de Terra</Link>
+          </section>
+          <Accordion><AccordionItem value="a15-comparisons"><AccordionTrigger>Ver modelos, precios y comparación de campos</AccordionTrigger><AccordionContent><AgentResults report={report} code={code}/></AccordionContent></AccordionItem></Accordion>
+        </div>
+      ) : code === A14_MODEL_DECISION.agentCode ? (
+        <div className="space-y-5">
+          <section className="space-y-3 rounded-xl border border-line bg-surface p-5">
+            <Badge tone="success">A14 · modelo de diagnóstico elegido</Badge>
+            <h2 className="text-2xl font-semibold">Operativa de Meta Ads · {A14_MODEL_DECISION.label}</h2>
+            <p>Sol principal y Terra como segundo modelo. Sol recoge gasto, compras y coste por compra atribuidos, distingue CPA de CAC y enlaza las carencias con trabajo ya abierto. Terra es más económico y prudente, con menos detalle. El respaldo entre estos modelos no cubre una caída total de OpenAI.</p>
+            <p>Dos tandas de seis modelos. La nueva cuenta Rafael Borrego Reyes permite leer ficha e informes y ya sincroniza. Rafa Borrego queda sin asignar y deseleccionada, conservando su histórico aparte. Corregida la lectura de facturación que bloqueaba toda la conexión pese a permitir informes.</p>
+            <p>Se ha validado el diagnóstico con las fuentes disponibles y la abstención cuando faltan datos. La cuenta nueva no aporta adquisición en las dos ventanas; A24 no acredita medición y hay 951 pedidos sin base monetaria verificada y costes históricos estimados. Elegir el modelo no habilita inversión: la optimización con campaña activa y economía verificada sigue sin evaluar.</p>
+            <p className="font-medium">Referencia del catálogo del laboratorio: 0,092646 USD por ejecución sin caché · 2,77938 USD por 30 lecturas de una tienda.</p>
+            <p className="text-sm text-muted">Una lectura diaria por tienda elegible, condicionada a actividad, cupos y presupuesto. Cliente y consultor comparten el resultado; abrirlo no duplica el coste. Herramientas, reintentos y fallback son adicionales. Estimación equivalente API con tokens CLI y tarifas del catálogo, no factura.</p>
+            <p className="text-sm text-muted">Seis modelos sin Astra y veinte bloques del contexto real del runtime sobre datos TEST de demostración. Sonnet afirmó erróneamente que 8.235 compras superaban 9.652 clics. Opus tomó compras atribuidas por clic como conversión demostrada; su propuesta fue retirada por el filtro nativo. Originales y revisión conservados.</p>
+            <Link href="/meta#meta-pendiente">Ver la lectura de A14 en Meta Ads</Link>
+          </section>
+          <Accordion><AccordionItem value="a14-comparisons"><AccordionTrigger>Ver las seis respuestas, costes y revisión</AccordionTrigger><AccordionContent><AgentResults report={report} code={code} /></AccordionContent></AccordionItem></Accordion>
+        </div>
+      ) : code === A12_MODEL_DECISION.agentCode ? (
+        <div className="space-y-5">
+          <section className="space-y-3 rounded-xl border border-line bg-surface p-5">
+            <Badge tone="success">A12 · revisión cerrada</Badge>
+            <h2 className="text-2xl font-semibold">Analista de email · {A12_MODEL_DECISION.label}</h2>
+            <p>Sol principal, Sonnet 5.5 como respaldo entre proveedores y Terra como alternativa económica. Seis modelos comparados con el contexto del runtime, tareas e histórico de la tienda TEST; sin Astra. Sol interpreta cifras y límites sin atribuir causas ni duplicar automatizaciones ya creadas.</p>
+            <p className="text-sm text-muted">El histórico existente es sintético de demostración. Corregidos doce intervalos mensuales y sus recibos de TEST; la primera tanda sin cobertura se conserva aparte. Una respuesta por modelo, sin probar herramientas dinámicas ni API pagada.</p>
+            <p className="font-medium">Referencia Sol sin caché: 0,09684 USD por ejecución · 2,9052 USD por 30 lecturas de tienda · 5,8104 USD con otras 30 del agregado organizativo.</p>
+            <p className="text-sm text-muted">El orquestador revisa actividad, antigüedad y cupos; no garantiza 60 ejecuciones mensuales. Cliente y consultor leen el mismo diagnóstico por tienda. Abrir la página no genera otro análisis. Herramientas, fallbacks y reintentos son adicionales.</p>
+            <div className="flex flex-wrap gap-4"><Link href="/admin/costes-ia">Ver costes de A12</Link><Link href="/dashboard?tab=klaviyo">Ver resultado en Klaviyo</Link></div>
+          </section>
+          <Accordion><AccordionItem value="comparisons"><AccordionTrigger>Ver las seis respuestas, costes y revisión</AccordionTrigger><AccordionContent><AgentResults report={report} code={code} /></AccordionContent></AccordionItem></Accordion>
         </div>
       ) : (
         <AgentResults report={report} code={code} />

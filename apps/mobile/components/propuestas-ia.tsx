@@ -116,10 +116,10 @@ export function PropuestasIA({ clients, showClient, onDone }: { clients: Propose
     <>
       <Pressable onPress={() => setOpen(true)} accessibilityRole="button" style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 999, backgroundColor: c.accentTint, opacity: pressed ? 0.6 : 1 })}>
         <Sparkles size={16} color={c.ink} />
-        <Text style={{ flex: 1, fontSize: 14, fontFamily: font.medium, color: c.ink }}>{`La IA propone ${total} tarea${total === 1 ? "" : "s"}`}</Text>
+        <Text style={{ flex: 1, fontSize: 14, fontFamily: font.medium, color: c.ink }}>{`NORA propone ${total} tarea${total === 1 ? "" : "s"}`}</Text>
         <ChevronRight size={18} color={c.muted} />
       </Pressable>
-      <BatchesSheet title="La IA propone" clients={clients} showClient={showClient} open={open} onClose={() => setOpen(false)} onDone={onDone} />
+      <BatchesSheet title="NORA propone" clients={clients} showClient={showClient} open={open} onClose={() => setOpen(false)} onDone={onDone} />
     </>
   );
 }

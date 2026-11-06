@@ -67,8 +67,10 @@ export function PortfolioCompare({
   const moneyAxis = (value: number) => compact.format(value);
 
   // Lo peor primero manda en la tabla; aquí se ordena por tamaño, que es como se compara.
-  const all = [...data.stores].sort((a, b) => b.revenue - a.revenue).slice(0, MAX_STORES);
-  const same = all.filter((store) => store.currency_code === currency);
+  const verified = data.stores.filter((store) => !store.flags.some((flag) => flag.key === "financial_unverified"));
+  const unverifiedCount = data.stores.length - verified.length;
+  const all = [...verified].sort((a, b) => b.revenue - a.revenue).slice(0, MAX_STORES);
+  const same = all.filter((store) => store.currency_code === currency && !store.flags.some((flag) => flag.key === "financial_unverified"));
   const otherCurrency = all.length - same.length;
   const label = (store: ProfitStoreRow) => `${store.tier === "datos" ? "≈ " : ""}${store.shop_name}`;
   const colorOf = new Map(all.map((store, index) => [store.store_id, STORE_COLORS[index % STORE_COLORS.length]!]));
@@ -391,11 +393,12 @@ export function PortfolioCompare({
         </Panel>
       ) : null}
 
-      {otherCurrency > 0 || data.stores.length > MAX_STORES ? (
+      {otherCurrency > 0 || unverifiedCount > 0 || data.stores.length > MAX_STORES ? (
         <p className={s.foot}>
           {otherCurrency > 0
             ? `${otherCurrency} ${otherCurrency === 1 ? "tienda vende" : "tiendas venden"} en otra moneda: entra en los porcentajes, no en los importes. `
             : ""}
+          {unverifiedCount > 0 ? `${unverifiedCount} tienda(s) quedan fuera de la comparación hasta verificar sus datos financieros. ` : ""}
           {data.stores.length > MAX_STORES ? `Las gráficas enseñan las ${MAX_STORES} que más venden; todas están en la tabla.` : ""}
         </p>
       ) : null}

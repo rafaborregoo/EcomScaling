@@ -14,6 +14,7 @@ import {
   EmptyState,
   ErrorBlock,
   LoadingBlock,
+  Link,
   Card,
   CardContent,
   CardDescription,
@@ -282,7 +283,11 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
         <Card className="border border-channel-meta">
           <CardHeader>
             <CardTitle>Elige las cuentas que quieres analizar</CardTitle>
-            <CardDescription>Solo traeremos datos de las cuentas marcadas. Puedes cambiar esta selección cuando lo necesites.</CardDescription>
+            <CardDescription>
+              Una misma autorización de Meta puede mostrar varias cuentas
+              publicitarias. Marca solo las que quieras importar y analizar;
+              esto no cambia a qué tienda pertenece cada cuenta.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {assetsLoading ? (
@@ -326,6 +331,11 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
                         <span className="block font-mono text-xs text-muted">
                           {asset.external_id}
                         </span>
+                        <span className={`mt-1 block text-xs ${asset.is_selected ? "text-success" : "text-muted"}`}>
+                          {asset.is_selected
+                            ? "Seleccionada: se sincroniza y se analiza"
+                            : "No seleccionada: no se sincroniza"}
+                        </span>
                         {asset.currency_code || asset.timezone_name ? (
                           <span className="block text-xs text-muted">
                             {[asset.currency_code, asset.timezone_name]
@@ -336,25 +346,28 @@ function MetaIntegrationPage({ bootstrap }: { bootstrap: BootstrapResponse }) {
                         {/* A que tienda se le imputa el gasto de esta cuenta. Sin
                             esto, con dos tiendas, marcar una casilla era decidir
                             a ciegas de quien es el gasto. */}
-                        {scope && scope.store_count > 1 ? (
-                          <span className="mt-1 block text-xs">
-                            {storeByAccountId.get(asset.id) ? (
-                              <span className="text-muted">
-                                Tienda:{" "}
-                                {storeLabel(storeByAccountId.get(asset.id)!)}
-                              </span>
-                            ) : (
-                              <span className="text-warn">
-                                Sin tienda asignada · su gasto no aparece al
-                                filtrar por tienda
-                              </span>
-                            )}
-                          </span>
-                        ) : null}
+                        <span className="mt-1 block text-xs">
+                          {scope?.meta_ad_accounts.find((account) => account.id === asset.id)?.store_id ? (
+                            <span className="text-muted">
+                              Tienda asignada: {storeByAccountId.get(asset.id)
+                                ? storeLabel(storeByAccountId.get(asset.id)!)
+                                : "otra tienda de esta organización"}
+                            </span>
+                          ) : scope ? (
+                            <span className="text-warn">Sin tienda asignada</span>
+                          ) : (
+                            <span className="text-muted">No se pudo comprobar la tienda asignada</span>
+                          )}
+                        </span>
                       </span>
                     </Checkbox>
                   ))}
                 </FieldSet>
+                <p className="mt-3 text-xs leading-5 text-muted">
+                  Desmarcar una cuenta detiene nuevas sincronizaciones; no
+                  desconecta Meta ni borra el historial ya importado. Para
+                  cambiar su tienda, usa <Link href="/integraciones/cuentas">Cuentas por tienda</Link>.
+                </p>
                 {/* Antes era texto suelto: al guardar, con lector de pantalla no
                     se anunciaba nada y el foco seguia en el boton. */}
                 <p

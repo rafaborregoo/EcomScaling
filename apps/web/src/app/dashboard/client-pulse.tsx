@@ -1,7 +1,7 @@
 "use client";
 
 import { buttonVariants } from "@/components/ui/button";
-import { SparklesIcon } from "lucide-react";
+import { A02Reading } from "@/components/a02-reading";
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode, type RefObject } from "react";
 import { apiFetch, invalidateApiGetCache } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
@@ -15,15 +15,21 @@ import { ZoneCard, ZoneNoteMark, zoneAnchor } from "@/components/zone-notes";
 import { useCopilotAsk } from "@/components/copilot-ask";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger, ArchiveIcon, ToggleGroup, ToggleGroupItem, Attachment, AttachmentContent, AttachmentDescription, AttachmentMedia, AttachmentTitle, AttachmentTrigger, Banner, Bubble, BubbleContent, Message, MessageContent, MessageFooter, ErrorBlock, CheckIcon, CloseIcon, MessageIcon, PlusIcon, Skeleton, toast, Collapsible, CollapsibleContent, CollapsibleMore, CollapsibleTrigger, IconChevronDown } from "@/components/ui";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger, ArchiveIcon, ToggleGroup, ToggleGroupItem, Attachment, AttachmentContent, AttachmentDescription, AttachmentMedia, AttachmentTitle, AttachmentTrigger, Banner, Bubble, BubbleContent, Message, MessageContent, MessageFooter, ErrorBlock, CheckIcon, CloseIcon, MessageIcon, PlusIcon, Skeleton, toast, Collapsible, CollapsibleContent, CollapsibleMore, CollapsibleTrigger, IconChevronDown, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Tabs } from "@/components/ui";
 import { FileTypeIcon, fileMeta } from "@/lib/file-meta";
 import type { AssignedConsultant } from "@/hooks/use-assigned-consultant";
-import { canShowProfit, salesChangePct, storePulse } from "./store-pulse";
+import { canShowProfit, financialComparabilityMessage, salesChangePct, storePulse, type FinancialComparabilityView } from "./store-pulse";
 import {
   changeText,
+  channelReading,
+  channelSync,
+  CHANNEL_SYNC_LABEL,
   clientReadable,
+  chartScale,
   evidenceText,
   fmtCurrency,
+  pickGoals,
+  type GoalObjective,
   fmtEur,
   fmtNum,
   MIN_NEW_CUSTOMERS_FOR_CAC,
@@ -65,6 +71,7 @@ export const cx = (...classes: Array<string | false | null | undefined>) => clas
 // ---------------------------------------------------------------------------
 
 export type Metrics = {
+  financial_comparability?: FinancialComparabilityView;
   currency_code?: string | null;
   financial_currency_coverage?: {
     status: "compatible" | "incompatible" | "unknown";
@@ -97,8 +104,9 @@ export type Metrics = {
   metric_targets: Array<{ metric_key: string; target_value: number }>;
   previous_period: {
     sales: { net_sales: number; orders_count: number; aov: number };
-    financial: { net_profit: number; net_margin_pct: number; lines_without_metrics: number | null };
+    financial: { net_profit: number; net_margin_pct: number; lines_without_metrics: number | null; comparability?: FinancialComparabilityView };
     conversion_rate_own?: number | null;
+    daily?: Array<{ date: string; net_sales: number; orders_count: number; conversion_rate_own: number | null }>;
   } | null;
   daily: Array<{ date: string; net_sales: number; orders_count: number; net_profit: number | null }>;
   funnel: {
@@ -133,12 +141,15 @@ export type MetaMetrics = {
 };
 
 type KlaviyoEntity = { id: string; name: string; revenue: number; revenue_per_recipient: number | null };
+type KlaviyoCampaign = KlaviyoEntity & { subject: string | null; send_time: string | null; recipients: number; open_rate: number | null; click_rate: number | null };
 export type KlaviyoReport = {
   connected: boolean;
+  connection?: { status: string; last_sync_at: string | null; last_error_message: string | null } | null;
   totals: { revenue: number; campaign_revenue: number; flow_revenue: number };
   previous: { revenue: number } | null;
   trend: Array<{ month: string; campaign_revenue: number; flow_revenue: number }>;
   flows: KlaviyoEntity[];
+  campaigns?: KlaviyoCampaign[];
 };
 
 type Task = {
@@ -213,7 +224,7 @@ type IntegrationsPayload = {
   providers: Array<{
     id: string;
     name: string;
-    connection: { status: string; last_sync_at: string | null } | null;
+    connection: { status: string; last_sync_at: string | null; last_error_message?: string | null } | null;
   }>;
 };
 
@@ -322,6 +333,8 @@ export function a02FindingText(diagnostic: Diagnostic | undefined, pattern: RegE
   return findingFor(diagnostic, pattern)?.title ?? "A02 no ha señalado un hallazgo específico en esta sección.";
 }
 
+const initials = (name: string) => name.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase();
+
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 const PRIORITY_LABEL: Record<string, string> = { urgent: "Urgente", critical: "Urgente", high: "Alta", medium: "Media", low: "Baja", info: "Baja" };
 
@@ -391,63 +404,84 @@ export type PulseSeries = {
   delta?: ReactNode;
   /** Valor comparable del periodo anterior, cuando la fuente lo proporciona. */
   previous?: ReactNode;
+  /** Línea de comparación, alineada por posición con `values`. */
+  previousValues?: Array<number | null>;
+  /** Solo si la comparación no es día a día, como una media. */
+  previousLabel?: string;
+  /** 1 para euros enteros y pedidos: sin marcas de medio pedido en el eje. */
+  minStep?: number;
   aiNotice?: ReactNode;
 };
 
 /**
- * Las cuatro series en un mismo gráfico. Cada línea tiene su propio eje Y oculto
- * para que euros y porcentajes no se aplasten entre sí; pulsar una cifra oculta
- * o muestra su línea.
+ * Una métrica cada vez, con su unidad en el eje y su periodo anterior en línea
+ * discontinua: euros, pedidos y porcentajes no se leen en una misma escala.
+ * Pulsar una cifra cambia la métrica del gráfico.
  */
-export function PulseChart({ dates, series, anchorId }: {
+export function PulseChart({ dates, previousDates, series, anchorId }: {
   dates: string[];
+  previousDates: string[];
   series: PulseSeries[];
   anchorId?: string;
 }) {
-  // Todas encendidas al empezar; pulsar una cifra oculta o muestra su línea.
-  const [off, setOff] = useState<Set<string>>(() => new Set());
-  const toggle = (key: string) => setOff((prev) => {
-    const next = new Set(prev);
-    if (!next.delete(key)) next.add(key);
-    return next;
-  });
-  const config: ChartConfig = Object.fromEntries(series.map((serie) => [serie.key, { label: serie.label, color: serie.color }]));
-  const rows = dates.map((date, index) => Object.fromEntries([
-    ["date", date],
-    ...series.map((serie) => {
-      const value = serie.values[index];
-      return [serie.key, value != null && Number.isFinite(value) ? value : null];
-    }),
-  ]));
-  const formatOf = (value: number, key: string) => series.find((serie) => serie.key === key)?.format(value) ?? String(value);
+  const [selected, setSelected] = useState(series[0]?.key);
+  // La serie elegida puede desaparecer al cambiar de tienda (el beneficio es opcional).
+  const active = series.find((serie) => serie.key === selected) ?? series[0];
+  if (!active) return null;
+  const finite = (value: number | null | undefined) => (value != null && Number.isFinite(value) ? value : null);
+  const previousValues = active.previousValues ?? [];
+  // Todo a cero suele ser una tienda sin histórico, no un periodo sin ventas.
+  const hasPrevious = previousValues.some((value) => finite(value));
+  const rows = dates.map((date, index) => ({
+    date,
+    previousDate: active.previousLabel ? undefined : previousDates[index],
+    current: finite(active.values[index]),
+    previous: hasPrevious ? finite(previousValues[index]) : null,
+  }));
+  const plotted = rows.flatMap((row) => [row.current, row.previous]).filter((value) => value !== null);
+  const scale = chartScale(plotted, null, active.minStep);
+  const config: ChartConfig = {
+    current: { label: active.label, color: active.color },
+    previous: { label: active.previousLabel ?? "Periodo anterior", color: active.color },
+  };
+  const range = (days: string[]) => `${dayLabel(days[0])} – ${dayLabel(days[days.length - 1])}`;
   return (
     <div className={s.pChart} id={anchorId}>
       <div className={s.pChartKpis} role="group" aria-label="Indicadores principales">
         {series.map((serie) => (
           <div key={serie.key} className={s.pChartKpiWrap} style={{ "--serie": serie.color } as CSSProperties}>
-            <button className={s.pChartKpi} type="button" aria-pressed={!off.has(serie.key)} onClick={() => toggle(serie.key)}>
+            <button className={s.pChartKpi} type="button" aria-pressed={serie.key === active.key} onClick={() => setSelected(serie.key)}>
               <span className={s.pChartKpiLabel}><i aria-hidden="true" />{serie.label}</span>
               <span className={s.pChartKpiValue}>{serie.total}</span>
-              <span className={s.pChartKpiMeta}>{serie.delta}<span className={s.pChartPrevious}>Ant. {serie.previous ?? "—"}</span></span>
+              <span className={s.pChartKpiMeta}>{serie.delta}<span className={s.pChartPrevious}>Anterior: {serie.previous ?? "—"}</span></span>
             </button>
             {serie.aiNotice ? <span className={s.pChartKpiNotice}>{serie.aiNotice}</span> : null}
           </div>
         ))}
       </div>
       {dates.length ? (
-        <ChartContainer config={config} className="w-full" style={{ height: 300, aspectRatio: "auto" }} role="group" aria-label="Evolución diaria de los indicadores">
-          <RechartsLineChart accessibilityLayer data={rows} margin={{ left: 12, right: 12, top: 8 }}>
-            <CartesianGrid vertical={false} />
-            <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} minTickGap={32} tickFormatter={(value) => dayLabel(String(value))} />
-            {series.map((serie) => (
-              <YAxis key={serie.key} yAxisId={serie.key} hide domain={[(min: number) => Math.min(0, min), (max: number) => Math.max(0, max)]} />
-            ))}
-            <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" valueFormatter={formatOf} labelFormatter={(value) => dayLabel(String(value), true)} />} />
-            {series.map((serie) => (
-              <Line key={serie.key} yAxisId={serie.key} dataKey={serie.key} hide={off.has(serie.key)} type="monotone" stroke={`var(--color-${serie.key})`} strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
-            ))}
-          </RechartsLineChart>
-        </ChartContainer>
+        <div className={s.pChartPlot} style={{ "--serie": active.color } as CSSProperties}>
+          <div className={s.pChartLegend}>
+            <strong>{active.label} por día</strong>
+            <span><i aria-hidden="true" />{range(dates)}</span>
+            {hasPrevious
+              ? <span><i aria-hidden="true" data-previous />{active.previousLabel ?? `Periodo anterior · ${range(previousDates)}`}</span>
+              : <span>Sin datos del periodo anterior</span>}
+          </div>
+          <ChartContainer config={config} className="w-full" style={{ height: 346, aspectRatio: "auto" }} role="group" aria-label={`${active.label} por día`}>
+            <RechartsLineChart accessibilityLayer data={rows} margin={{ left: 4, right: 12, top: 8 }}>
+              <CartesianGrid vertical={false} />
+              <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} minTickGap={32} tickFormatter={(value) => dayLabel(String(value))} />
+              <YAxis width={68} tickLine={false} axisLine={false} domain={[scale.bottom, scale.top]} ticks={scale.ticks} tickFormatter={(value) => active.format(Number(value))} />
+              <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" valueFormatter={(value) => active.format(value)} labelFormatter={(value) => {
+                const previousDate = rows.find((row) => row.date === value)?.previousDate;
+                return `${dayLabel(String(value), true)}${hasPrevious && previousDate ? ` frente a ${dayLabel(previousDate, true)}` : ""}`;
+              }} />} />
+              {hasPrevious ? <Line dataKey="previous" type="monotone" stroke="var(--color-previous)" strokeOpacity={0.5} strokeWidth={1.5} strokeDasharray="4 4" dot={false} connectNulls={false} isAnimationActive={false} /> : null}
+              <Line dataKey="current" type="monotone" stroke="var(--color-current)" strokeWidth={2.25} dot={false} connectNulls={false} isAnimationActive={false} />
+            </RechartsLineChart>
+          </ChartContainer>
+        </div>
       ) : <p className={s.chartEmpty}>Todavía no hay datos diarios de este periodo.</p>}
     </div>
   );
@@ -817,14 +851,14 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
       if (task.status !== "proposed" && task.due_at && Date.parse(task.due_at) - now > SHORT_TERM_DAYS * DAY_MS) continue;
       list.push({ kind: "task", key: task.id, task, mine: asConsultant ? task.assigned_to === userId : !task.assigned_to || task.assigned_to === userId, priority: task.priority });
     }
-    // Las propuestas de IA esperan una decision humana: van primero, si no quedan tapadas por tareas urgentes.
-    // A igual prioridad, lo que vence antes (lo vencido el primero).
+    // Primero lo más grave, sea propuesta o tarea: solo se enseñan las cinco primeras.
+    // A igual gravedad, lo que espera una decisión; luego lo que vence antes.
     const dueOf = (i: QueueItem) => (i.kind === "task" && i.task.due_at ? Date.parse(i.task.due_at) : Infinity);
     const awaitsDecision = (i: QueueItem) => i.kind === "proposal" || (i.kind === "task" && i.task.status === "proposed");
     return list.sort(
       (a, b) =>
-        Number(awaitsDecision(b)) - Number(awaitsDecision(a)) ||
         (PRIORITY_RANK[a.priority] ?? 2) - (PRIORITY_RANK[b.priority] ?? 2) ||
+        Number(awaitsDecision(b)) - Number(awaitsDecision(a)) ||
         dueOf(a) - dueOf(b),
     );
   }, [asConsultant, goneProposals, goneTasks, now, operations, proposals, sentOutputs, userId]);
@@ -1000,19 +1034,23 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
             if (item.kind === "proposal") {
               const decided = decisions[item.outputId]?.[item.index];
               const pendingOthers = item.total - Object.keys(decisions[item.outputId] ?? {}).length;
+              const isA04 = item.sourceLabel.startsWith("A04");
               return (
                 <li key={item.key} className={cx(s.qi, s.qiProposal, "task-lift")}>
                   <span className={cx(s.pr, prioClass(item.priority))} aria-hidden="true" />
+                  <span className={s.qiAv} data-tone="ia" aria-hidden="true">{isA04 ? "A04" : "IA"}</span>
                   <div>
                     <p className={s.qiK}>
-                      <span className={s.ia}>{item.sourceLabel.startsWith("A04") ? "A04" : "IA"}</span>
-                      {item.sourceLabel.startsWith("A04") ? item.sourceLabel.replace(/^A04 · /, "") : "Propuesta"}
-                      {" · "}
-                      {asConsultant
-                        ? "Propuesta · puedes decidirla; el cliente también"
-                        : consultant
-                          ? "Propuesta · puedes decidirla o esperar a tu consultor"
-                          : "Propuesta · puedes crear la tarea o descartarla"}
+                      <span className={s.ia}>{isA04 ? "A04" : "IA"}</span>
+                      <span className={s.qiSource}>{isA04 ? item.sourceLabel.replace(/^A04 · /, "") : "Propuesta"}</span>
+                      <span className={s.qiHint}>
+                        {isA04 ? "· Propuesta · " : "· "}
+                        {asConsultant
+                          ? "puedes decidirla; el cliente también"
+                          : consultant
+                            ? "puedes decidirla o esperar a tu consultor"
+                            : "puedes crear la tarea o descartarla"}
+                      </span>
                     </p>
                     <p className={s.qiT}>{item.title}</p>
                     {item.why ? <TaskDetail text={item.why} label="Por qué" /> : null}
@@ -1020,7 +1058,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                       <span className={cx(s.prioL, prioClass(item.priority) === s.prUrgent && s.prioUrgent)}>
                         {PRIORITY_LABEL[item.priority] ?? item.priority}
                       </span>
-                      {item.due ? <span className={s.chip}>{item.due}</span> : null}
+                      {item.due ? <span className={s.chip} title={item.due}>{item.due}</span> : null}
                       {decided ? (
                         <span className={cx(s.chip, decided === "approved" ? s.chipGood : undefined)}>
                           {decided === "approved" ? "Aprobada" : "Descartada"}
@@ -1034,7 +1072,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                   ) : (
                     <div className={s.qiA}>
                       <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm", className: s.iconOk })} aria-label="Crear tarea" title="Crear tarea" disabled={busy !== null} onClick={() => void decide(item, "approved")}>
-                        <CheckIcon aria-hidden="true" />
+                        <CheckIcon aria-hidden="true" /><span className={s.btnLabel}>Crear tarea</span>
                       </button>
                       <button type="button" className={buttonVariants({ variant: "ghost", size: "icon-sm", className: s.iconNo })} aria-label="Descartar" title="Descartar" disabled={busy !== null} onClick={() => void decide(item, "rejected")}>
                         <CloseIcon aria-hidden="true" />
@@ -1048,6 +1086,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
               return (
                 <li key={item.key} className={cx(s.qi, "task-lift")}>
                   <span className={cx(s.pr, prioClass(item.priority))} aria-hidden="true" />
+                  <span className={s.qiAv} data-tone="high" aria-hidden="true">!</span>
                   <div>
                     <p className={s.qiK} style={{ color: "var(--warn)" }}>Aviso</p>
                     <p className={s.qiT}>{item.title}</p>
@@ -1071,6 +1110,9 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
             const notesOpen = openComments === task.id;
             return (
               <li key={item.key} className={cx(s.qi, s.qiTask, proposed && s.qiProposal, "task-lift")}>
+                <span className={s.qiAv} data-tone={rank === 0 ? "urgent" : rank === 1 ? "high" : undefined} aria-hidden="true">
+                  {item.mine ? "TÚ" : initials(task.assignee_name ?? consultantName)}
+                </span>
                 {canClose ? (
                   <button
                     type="button"
@@ -1084,7 +1126,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                       setOutcome("");
                     }}
                   >
-                    <CheckIcon aria-hidden="true" />
+                    <CheckIcon aria-hidden="true" /><span className={s.btnLabel}>Hecha</span>
                   </button>
                 ) : (
                   <span aria-hidden="true" />
@@ -1098,6 +1140,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                   <p className={s.qiT}>{task.title}</p>
                   {/* Una sola línea de datos: prioridad, fecha, de quién, pasos y comentarios. */}
                   <div className={s.qiM}>
+                    {item.mine ? <span className={s.qiMine}>Tú</span> : who(false, task.assignee_name)}
                     {/* Solo se nombra la prioridad cuando cambia algo: urgente o alta. */}
                     {rank <= 1 ? (
                       <span className={cx(s.prioL, rank === 0 ? s.prioUrgent : s.prioHigh)}>
@@ -1110,7 +1153,6 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                         {dayLabel(task.due_at, true)}
                       </span>
                     ) : null}
-                    {item.mine ? null : who(false, task.assignee_name)}
                     {task.status === "in_progress" ? <span className={cx(s.chip, s.chipAcc)}>En curso</span> : null}
                     {asConsultant && task.is_visible_to_client === false ? <span className={s.chip}>Interna · el cliente no la ve</span> : null}
                     {steps.length ? (
@@ -1241,7 +1283,7 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
           };
 
   return (
-    <div className={cx(s.panel, "zone-card")}>
+    <>
       <div className={s.panelH}>
         <div>
           <h3 id={titleId}>
@@ -1260,6 +1302,16 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
                 {" · "}
                 <b>{urgent} urgentes</b>
               </>
+            ) : null}
+            {items.some((i) => i.kind === "proposal") ? (
+              <span className={s.qSumHint}>
+                {" · "}
+                {asConsultant
+                  ? "las propuestas puedes decidirlas; el cliente también"
+                  : consultant
+                    ? "las propuestas puedes decidirlas o esperar a tu consultor"
+                    : "de cada propuesta puedes crear la tarea o descartarla"}
+              </span>
             ) : null}
           </p>
         </div>
@@ -1321,7 +1373,282 @@ export function WorkQueue({ base, userId, consultant, asConsultant = false, prop
         </CollapsibleContent>
         </Collapsible>
       ) : null}
-    </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Objetivos (los manda Mi Camino) y ventas por mes
+// ---------------------------------------------------------------------------
+
+/** En los extremos el aviso se alinea con la barra para no salirse de la tarjeta. */
+const tipEdge = (index: number, total: number, margin: number) =>
+  index < margin ? "start" : index >= total - margin ? "end" : undefined;
+
+// El estado vive aquí para que pasar el ratón no vuelva a pintar toda la portada.
+function DailySales({ days, money }: {
+  days: Array<{ date: string; net_sales: number }>;
+  money: (value: number) => string;
+}) {
+  const [hovered, setHovered] = useState<number | null>(null);
+  const lastDay = days.at(-1);
+  const shown = (hovered === null ? null : days[hovered]) ?? lastDay;
+  const max = Math.max(...days.map((day) => day.net_sales), 1);
+  return (
+    <>
+      <div className={s.gLiveHead}>
+        <div>
+          <h2 id="pulse-dia">Ventas por día</h2>
+          <p>Días cerrados · últimos 30 días</p>
+        </div>
+        {shown ? <span className={s.gLivePill}><i aria-hidden="true" />{dayLabel(shown.date)}</span> : null}
+      </div>
+      {shown && lastDay ? (
+        <>
+          <p className={s.gLiveV}>{money(shown.net_sales)}<small>el {dayLabel(shown.date, true)}</small></p>
+          <div className={s.gBars} role="img" aria-label={`Ventas netas de los últimos ${days.length} días cerrados`} onPointerLeave={() => setHovered(null)}>
+            {days.map((day, index) => (
+              <span
+                key={day.date}
+                className={s.gTip}
+                data-tip={`${dayLabel(day.date, true)} · ${money(day.net_sales)}`}
+                data-edge={tipEdge(index, days.length, 5)}
+                style={{ "--share": Math.max(0.03, Math.max(day.net_sales, 0) / max) } as CSSProperties}
+                onPointerEnter={() => setHovered(index)}
+              >
+                <i />
+              </span>
+            ))}
+          </div>
+          <div className={s.gBarsAxis}><span>{dayLabel(days[0].date)}</span><span>{dayLabel(lastDay.date)}</span></div>
+        </>
+      ) : <p className={s.chartEmpty}>Todavía no hay días cerrados en este periodo.</p>}
+    </>
+  );
+}
+
+function GoalsCard({ objectives, money, href }: {
+  objectives: GoalObjective[];
+  money: (value: number) => string;
+  href: string;
+}) {
+  const { main, others } = pickGoals(objectives);
+  const format = (value: number, unit: string) =>
+    unit === "money" ? money(value) : unit === "pct" ? `${fmtNum(value, 1)} %` : unit === "ratio" ? `${fmtNum(value, 2)}×` : fmtNum(value);
+  const pct = main ? Math.min(100, Math.max(0, main.progress_pct ?? 0)) : 0;
+  return (
+    <Link className={cx(s.pBlock, s.gGoal, "zone-card")} href={href} aria-label="Ver objetivos en Mi Camino">
+      {main ? (
+        <>
+          <div className={s.gGoalHead}>
+            <h2>Hacia {format(main.target_value, main.unit)}</h2>
+            <p>{main.label}{main.measurement?.period_label ? ` · ${main.measurement.period_label}` : ""}</p>
+          </div>
+          <div className={s.gGoalMain}>
+            <div className={s.gRing} role="img" aria-label={`${fmtNum(pct)} % del objetivo`}>
+              <svg viewBox="0 0 120 120" aria-hidden="true">
+                <circle cx="60" cy="60" r="52" pathLength={100} />
+                <circle cx="60" cy="60" r="52" pathLength={100} strokeDasharray={`${pct} 100`} />
+              </svg>
+              <span><b>{fmtNum(pct)} %</b><small>del objetivo</small></span>
+            </div>
+            <dl className={s.gGoalFacts}>
+              <div><dt>Llevas</dt><dd>{format(main.actual_value ?? 0, main.unit)}</dd></div>
+              {pct < 100
+                ? <div><dt>Faltan</dt><dd>{format(main.target_value - (main.actual_value ?? 0), main.unit)}</dd></div>
+                : <div><dt>Estado</dt><dd>Cumplido</dd></div>}
+            </dl>
+          </div>
+          {others.length ? (
+            <ul className={s.gGoalOthers}>
+              {others.map((objective) => (
+                <li key={objective.id}>
+                  <span>{objective.label}</span>
+                  <b>{objective.progress_pct === null ? "Sin datos" : `${fmtNum(Math.max(0, objective.progress_pct))} %`}</b>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
+      ) : (
+        <div className={s.gGoalHead}>
+          <h2>Sin objetivos con datos</h2>
+          <p>Se fijan en Mi Camino</p>
+        </div>
+      )}
+    </Link>
+  );
+}
+
+function MonthsCard({ monthly, currentMonth, money }: {
+  monthly: Array<{ month: string; net_revenue_ex_tax: number }>;
+  /** AAAA-MM del mes en curso: va a medias y por eso se distingue. */
+  currentMonth: string;
+  money: (value: number) => string;
+}) {
+  const months = monthly.slice(-MONTH_BARS).map((row) => ({
+    key: row.month.slice(0, 7),
+    value: row.net_revenue_ex_tax,
+    label: new Date(`${row.month.slice(0, 7)}-15T00:00:00Z`).toLocaleDateString("es-ES", { month: "short", timeZone: "UTC" }).replace(".", ""),
+    name: new Date(`${row.month.slice(0, 7)}-15T00:00:00Z`).toLocaleDateString("es-ES", { month: "long", timeZone: "UTC" }),
+  }));
+  const closed = months.filter((month) => month.key !== currentMonth).at(-1);
+  if (months.length < 2 || !closed) return null;
+  const max = Math.max(...months.map((month) => month.value), 1);
+  return (
+    <section className={cx(s.pBlock, s.gMonths, "zone-card")} aria-labelledby="pulse-months">
+      <div className={s.gGoalHead}>
+        <h2 id="pulse-months">Ventas por mes</h2>
+        <p>{closed.name[0].toUpperCase() + closed.name.slice(1)} cerró en {money(closed.value)}</p>
+      </div>
+      <ol className={s.gMonthBars}>
+        {months.map((month, index) => (
+          <li
+            key={month.key}
+            className={s.gTip}
+            data-current={month.key === currentMonth || undefined}
+            data-tip={`${month.name}${month.key === currentMonth ? " en curso" : ""} · ${money(month.value)}`}
+            data-edge={tipEdge(index, months.length, 2)}
+            style={{ "--share": Math.max(0.02, Math.max(month.value, 0) / max) } as CSSProperties}
+          >
+            <i />
+            <span>{month.label}</span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Campañas de email y anuncios de Meta, cada uno con su atribución
+// ---------------------------------------------------------------------------
+
+type MetaAd = {
+  ad_id: string;
+  campaign_id?: string | null;
+  ad_name: string;
+  campaign_name: string;
+  spend: number;
+  spend_currency: string | null;
+  outbound_ctr: number | null;
+  purchases: number;
+  roas: number | null;
+  enough_volume: boolean;
+};
+const MARKETING_ROWS = 5;
+const MONTH_BARS = 7;
+const rate = (ratio: number | null | undefined, digits = 1) => (ratio == null ? "—" : `${fmtNum(ratio * 100, digits)} %`);
+
+function MarketingResults({ adsUrl, route, hasMeta, emails, emailsFailed, emailMoney, onRetryEmails }: {
+  adsUrl: string;
+  route: (href: string) => string;
+  hasMeta: boolean;
+  emails: KlaviyoCampaign[] | null;
+  emailsFailed: boolean;
+  /** Null si la moneda de Klaviyo no se puede comparar con la de la tienda. */
+  emailMoney: ((value: number) => string) | null;
+  onRetryEmails: () => void;
+}) {
+  const [chosenTab, setTab] = useState<string | null>(null);
+  // Sin envíos recientes se abre en los anuncios, en vez de en una pestaña vacía.
+  const tab = chosenTab ?? (emails?.length === 0 && hasMeta ? "meta" : "email");
+  // Los anuncios se piden al abrir su pestaña: es la consulta más pesada del widget.
+  const ads = useCachedQuery<{ creatives: MetaAd[]; unavailable?: string[] }>(tab === "meta" && hasMeta ? adsUrl : null);
+  const adsFailed = (Boolean(ads.error) && !ads.data) || Boolean(ads.data?.unavailable?.includes("creatives"));
+  const retry = (onRetry: () => void) => <button type="button" className={buttonVariants({ variant: "secondary", size: "sm" })} onClick={onRetry}>Volver a cargar</button>;
+  const loading = <Skeleton className="h-40 w-full" />;
+
+  const recentEmails = (emails ?? [])
+    .slice()
+    .sort((a, b) => (b.send_time ?? "").localeCompare(a.send_time ?? ""))
+    .slice(0, MARKETING_ROWS);
+  const topAds = (ads.data?.creatives ?? []).slice().sort((a, b) => b.spend - a.spend).slice(0, MARKETING_ROWS);
+
+  const emailPanel = emailsFailed ? (
+    <Empty action={retry(onRetryEmails)}>No se han podido cargar las campañas de email.</Empty>
+  ) : emails === null ? loading : recentEmails.length === 0 ? (
+    <Empty>Sin campañas enviadas en los últimos 30 días.</Empty>
+  ) : (
+    <>
+      <Table aria-label="Resultados de las últimas campañas de email">
+        <TableHeader>
+          <TableRow>
+            <TableHead>Campaña</TableHead>
+            <TableHead className={s.gMkN}>Destinatarios</TableHead>
+            <TableHead className={s.gMkN}>Apertura</TableHead>
+            <TableHead className={s.gMkN}>Clics</TableHead>
+            <TableHead className={s.gMkN}>Atribuidos por Klaviyo</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {recentEmails.map((campaign) => (
+            <TableRow key={campaign.id} className={s.gMkRow}>
+              <TableCell>
+                <Link className={s.gMkName} href={route(`/klaviyo/campanas/${encodeURIComponent(campaign.id)}`)}>{campaign.name}</Link>
+                <small className={s.gMkSub}>{campaign.send_time ? `Enviada el ${dayLabel(campaign.send_time, true)}` : "Sin fecha de envío"}</small>
+              </TableCell>
+              <TableCell className={s.gMkN}>{fmtNum(campaign.recipients)}</TableCell>
+              <TableCell className={s.gMkN}>{rate(campaign.open_rate)}</TableCell>
+              <TableCell className={s.gMkN}>{rate(campaign.click_rate, 2)}</TableCell>
+              <TableCell className={s.gMkN}>{emailMoney ? emailMoney(campaign.revenue) : "—"}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      {emailMoney ? null : <p className={s.gNote}>Importes pendientes de validar la moneda.</p>}
+    </>
+  );
+
+  const adsPanel = !hasMeta ? (
+    <Empty action={<Link className={buttonVariants({ variant: "secondary", size: "sm" })} href={route("/integraciones/meta")}>Conectar Meta Ads</Link>}>
+      Conecta tu cuenta publicitaria para ver tus anuncios.
+    </Empty>
+  ) : adsFailed ? (
+    <Empty action={retry(() => ads.reload())}>No se han podido cargar los anuncios de Meta.</Empty>
+  ) : !ads.data ? loading : topAds.length === 0 ? (
+    <Empty>Sin anuncios con gasto en los últimos 30 días.</Empty>
+  ) : (
+    <Table aria-label="Resultados de los anuncios de Meta con más inversión">
+      <TableHeader>
+        <TableRow>
+          <TableHead>Anuncio</TableHead>
+          <TableHead className={s.gMkN}>Inversión</TableHead>
+          <TableHead className={s.gMkN}>CTR</TableHead>
+          <TableHead className={s.gMkN}>Compras</TableHead>
+          <TableHead className={s.gMkN}>ROAS atribuido por Meta</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {topAds.map((ad) => (
+          <TableRow key={ad.ad_id} className={s.gMkRow}>
+            <TableCell>
+              {/* Un anuncio no tiene ficha propia: la suya es la de su campaña. */}
+              {ad.campaign_id
+                ? <Link className={s.gMkName} href={route(`/meta/campanas/${encodeURIComponent(ad.campaign_id)}`)}>{ad.ad_name}</Link>
+                : <span className={s.gMkName}>{ad.ad_name}</span>}
+              <small className={s.gMkSub}>{ad.campaign_name}</small>
+            </TableCell>
+            <TableCell className={s.gMkN}>{fmtCurrency(ad.spend, ad.spend_currency)}</TableCell>
+            <TableCell className={s.gMkN}>{ad.enough_volume ? rate(ad.outbound_ctr, 2) : "—"}</TableCell>
+            <TableCell className={s.gMkN}>{fmtNum(ad.purchases)}</TableCell>
+            <TableCell className={s.gMkN}>{!ad.enough_volume ? "Poco volumen" : ad.roas == null ? "—" : `${fmtNum(ad.roas, 2)}×`}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+
+  return (
+    <section className={cx(s.gMk, "zone-card")} aria-label="Campañas y anuncios">
+      <span className={s.gMkNote}><ZoneNoteMark anchor="bloque:marketing" label="Campañas y anuncios" /></span>
+      <Tabs
+        items={[{ value: "email", label: "Campañas de email" }, { value: "meta", label: "Anuncios de Meta" }]}
+        value={tab}
+        onChange={setTab}
+        panels={{ email: emailPanel, meta: adsPanel }}
+      />
+    </section>
   );
 }
 
@@ -1455,6 +1782,7 @@ export function ConsultantThread({ base, name, role, viewer = "client", draft, s
 
 export function ClientPulse({ userId, organizationId, organizationName, connectionId, consultant, asConsultant = false, extraProposals = [], onReload, extraKpis, extraKpiDetails, sideTop }: {
   userId: string;
+  /** Nombre de quien mira, para el saludo de la portada. */
   organizationId: string;
   organizationName: string;
   connectionId: string | null;
@@ -1478,6 +1806,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   const verdictOf = useMetricAnalysis(organizationId, 30, connectionId);
 
   const metrics = useCachedQuery<Metrics>(`${base}/shopify/metrics?days=30${scope}`);
+  const goals = useCachedQuery<{ objectives: GoalObjective[] }>(`${base}/objectives${connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : ""}`);
   const meta = useCachedQuery<MetaMetrics>(`${base}/meta/metrics?days=30${scope}`);
   const klaviyo = useCachedQuery<KlaviyoReport>(`${base}/klaviyo/email-report?days=30${scope}`);
   const operations = useCachedQuery<Operations>(`${base}/operations?${scope.replace(/^&/, "")}`);
@@ -1524,16 +1853,17 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   // Solo estos fallos significan "Shopify no está bien conectado". Un timeout o un 500
   // es la API o la base tardando: culpar a la conexión mandaba a Integraciones sin motivo.
   const storeNotConnected = ["shopify_connection_not_found", "shopify_currency_unavailable", "store_access_denied"].includes(metrics.errorCode ?? "");
-  const financialCurrencyComparable = data?.financial_currency_coverage?.status === "compatible";
+  const financialCurrencyComparable = (data?.financial_comparability?.currency_status ?? data?.financial_currency_coverage?.status) === "compatible";
   const klaviyoCurrencyComparable = data?.financial_currency_coverage?.klaviyo_status === "compatible";
   const diagnostic = !storeSelectionRequired ? monitor.data : undefined;
 
   if (metrics.isLoading && !data) {
     return (
-      <div className={cx(s.root, s.prio)} role="status" aria-busy="true">
+      <div className={cx(s.root, s.prio, s.glass)} data-glass role="status" aria-busy="true">
         <header className={s.pHead}>
-          <p className={s.pMeta}>{organizationName}</p>
-          <p className={s.pTitle}>Cargando {yourStore}…</p>
+          <div className={s.gHeadText}>
+            <p className={s.pTitle}>Cargando {yourStore}…</p>
+          </div>
         </header>
         <Skeleton className="h-24 w-full" aria-hidden="true" />
         <Skeleton className="h-64 w-full" aria-hidden="true" />
@@ -1543,7 +1873,8 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
 
   // ---- derivados ----
   const financial = data?.financial;
-  const showProfit = financialCurrencyComparable && financial
+  const financialCanDisplay = data?.financial_comparability?.status === "comparable" || data?.financial_comparability?.status === "estimated";
+  const showProfit = financialCurrencyComparable && financial && financialCanDisplay
     ? canShowProfit({
         hasFinancialSettings: financial.has_settings,
         itemsWithoutCost: financial.items_without_cost,
@@ -1556,8 +1887,8 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   );
   const pulse = storePulse({
     netSales: data?.sales.net_sales ?? 0,
-    netProfit: showProfit ? financial?.net_profit ?? null : null,
-    hasFinancialSettings: showProfit && (financial?.has_settings ?? false),
+    netProfit: data?.financial_comparability?.can_use_financial_model ? financial?.net_profit ?? null : null,
+    hasFinancialSettings: data?.financial_comparability?.can_use_financial_model === true && (financial?.has_settings ?? false),
     previousNetSales: previous?.sales.net_sales ?? null,
   });
   // La frase de la IA es el titular; si trae jerga de sistema, la de `storePulse`.
@@ -1567,28 +1898,40 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   // Hoy es un día todavía abierto: conserva su fecha en el eje, pero no lo dibuja
   // como cero ni como una caída frente a días completos. Los totales siguen intactos.
   const isCurrentDay = (date: string) => date.slice(0, 10) === currentDayKey;
+  const closedDays = daily.filter((day) => !isCurrentDay(day.date));
+  const previousDaily = previous?.daily ?? [];
+  // Frente a hoy cae el último día del periodo anterior, cortado a la misma hora:
+  // sin esto la comparación dibuja una caída que no existe.
+  const previousSeries = (pick: (day: (typeof previousDaily)[number]) => number | null) =>
+    previousDaily.map((day, index) => (daily[index] && isCurrentDay(daily[index].date) ? null : pick(day)));
   const target = (key: string) => data?.metric_targets.find((t) => t.metric_key === key)?.target_value ?? null;
 
   const proposals = [diagnostic, plannerAi.data, plannerOrgAi.data, stockAi.data, emailAi.data, ...extraProposals]
     .filter((d): d is Diagnostic => Boolean(d))
     .filter((d, i, all) => all.findIndex((o) => o.output_id === d.output_id) === i);
-  const analysisDate = diagnostic
-    ? new Date(diagnostic.generated_at).toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" })
-    : null;
 
   // Sin un mínimo de clientes nuevos el CAC no es una media sino una anécdota.
   const cacReliable = (financial?.new_customers ?? MIN_NEW_CUSTOMERS_FOR_CAC) >= MIN_NEW_CUSTOMERS_FOR_CAC;
   const showCac = financialCurrencyComparable && financial?.cac_blended != null && cacReliable;
 
-  // Fuentes caídas o con más de un día sin sincronizar: las cifras pueden no estar al día.
-  const staleSources = (integrations.data?.providers ?? []).filter(
-    (p) =>
-      p.connection &&
-      p.id !== "fathom" &&
-      (!["connected", "syncing"].includes(p.connection.status) ||
-        !p.connection.last_sync_at ||
-        today.getTime() - Date.parse(p.connection.last_sync_at) > DAY_MS),
+  // Conexión y sincronización de cada canal. Null mientras no se sabe.
+  // Con una cuenta de Klaviyo por tienda, /integrations da la peor de todas:
+  // con tienda elegida manda la suya, y si no tiene ninguna, no está conectada.
+  const providers = integrations.data?.providers.map((provider) =>
+    provider.id === "klaviyo" && connectionId && klaviyo.data
+      ? { ...provider, connection: klaviyo.data.connected ? klaviyo.data.connection ?? provider.connection : null }
+      : provider,
   );
+  const syncOf = (id: string) => (providers ? channelSync(providers.find((p) => p.id === id)?.connection, today.getTime()) : null);
+  const sourcesIn = (state: "stale" | "failed" | "reconnect") => (providers ?? []).filter((p) => p.connection && p.id !== "fathom" && channelSync(p.connection, today.getTime()) === state);
+  const reconnectSources = sourcesIn("reconnect");
+  const delayedSources = sourcesIn("stale");
+  const failedSources = sourcesIn("failed");
+  const sourceNotice = [
+    reconnectSources.length ? `${reconnectSources.map((p) => p.name).join(" y ")} ${reconnectSources.length > 1 ? "necesitan" : "necesita"} reconectarse.` : null,
+    delayedSources.length ? `${delayedSources.map((p) => p.name).join(" y ")} no ${delayedSources.length > 1 ? "se sincronizan" : "se sincroniza"} ${ago(delayedSources[0].connection?.last_sync_at ?? null)}: las cifras pueden no estar al día.` : null,
+    failedSources.length ? `La última sincronización de ${failedSources.map((p) => p.name).join(" y ")} falló: las cifras pueden estar incompletas.` : null,
+  ].filter(Boolean).join(" ");
 
   const revenueTarget = financialCurrencyComparable ? target("net_revenue_ex_tax") : null;
   const december = revenueTarget !== null && data
@@ -1598,10 +1941,12 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
 
   const metaAcq = meta.data?.acquisition;
   const hasMeta = Boolean(metaAcq && metaAcq.days_with_data > 0);
-  const hasKlaviyo = Boolean(klaviyo.data?.connected && klaviyo.data.totals);
+  const klaviyoCampaigns = klaviyo.data?.campaigns?.length ?? 0;
+  // Actividad real: sin envíos ni flujos, su «0 €» no es un resultado.
+  const hasKlaviyo = Boolean(klaviyo.data?.connected && klaviyo.data.totals && (klaviyo.data.totals.revenue > 0 || klaviyoCampaigns > 0 || klaviyo.data.flows.length > 0));
 
   // Lo que hay que vigilar fuera de las tareas: una línea y un enlace a donde se resuelve.
-  type Signal = { key: string; tone: "bad" | "warn"; text: string; href: string; action: string };
+  type Signal = { key: string; tone: "bad" | "warn"; text: string; impact: string; href: string };
   const signals: Signal[] = [];
   if (data && data.stock.out_of_stock_items + data.stock.low_stock_items > 0) {
     signals.push({
@@ -1611,6 +1956,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
         data.stock.out_of_stock_items ? `${fmtNum(data.stock.out_of_stock_items)} agotados` : null,
         data.stock.low_stock_items ? `${fmtNum(data.stock.low_stock_items)} con stock bajo` : null,
       ].filter(Boolean).join(" · "),
+      impact: data.stock.out_of_stock_items > 0 ? "No se pueden vender hasta reponerlos" : "Pueden agotarse si no se reponen",
       href: withPortalRouteContext(
         data.stock.out_of_stock_items > 0
           ? "/shopify/inventario?filter=out"
@@ -1618,33 +1964,34 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
         organizationId,
         connectionId,
       ),
-      action: "Ver stock",
     });
   }
   if (data && !financialCurrencyComparable) {
-    signals.push({ key: "currency", tone: "warn", text: "Rentabilidad pendiente de validar la moneda", href: withPortalRouteContext("/configuracion?section=rentabilidad", organizationId, connectionId), action: "Revisar" });
-  } else if (financial && !showProfit) {
+    signals.push({ key: "currency", tone: "warn", text: "Rentabilidad pendiente de validar la moneda", impact: "Beneficio y márgenes no se pueden calcular", href: withPortalRouteContext("/configuracion?section=rentabilidad", organizationId, connectionId) });
+  } else if (financial && !data?.financial_comparability?.can_use_financial_model) {
     signals.push({
       key: "profit",
       tone: "warn",
-      text: data?.margin.lines_without_metrics
-        ? "Beneficio sin calcular: faltan líneas de pedido por sincronizar"
-        : financial.has_settings
-        ? `Beneficio sin calcular: faltan costes de ${fmtNum(financial.items_without_cost)} producto(s)`
-        : "Beneficio sin calcular: faltan costes y gastos",
+      text: financialComparabilityMessage(data?.financial_comparability),
+      impact: "La cifra de beneficio aún no es fiable",
       href: withPortalRouteContext(financial.has_settings ? "/shopify" : "/configuracion?section=rentabilidad", organizationId, connectionId),
-      action: "Completar",
     });
   }
   if (revenueTarget !== null && december && december.value < revenueTarget) {
-    signals.push({ key: "goal", tone: "warn", text: `Por debajo del ritmo para ${formatStoreMoney(revenueTarget)} al mes`, href: withPortalRouteContext("/informes", organizationId, connectionId), action: "Ver informe" });
+    signals.push({ key: "goal", tone: "warn", text: `Por debajo del ritmo para ${formatStoreMoney(revenueTarget)} al mes`, impact: `La proyección de diciembre se queda en ${formatStoreMoney(december.value)}`, href: withPortalRouteContext("/informes", organizationId, connectionId) });
   }
 
+  // Sin saber el estado de la conexión (cargando o fallida), manda lo que han
+  // devuelto las métricas; sin ellas tampoco, no se afirma que esté desconectado.
+  const metaSync = syncOf("meta_ads") ?? (hasMeta ? "ok" : "unknown");
+  const klaviyoSync = syncOf("klaviyo") ?? (hasKlaviyo ? "ok" : "unknown");
+  const metaMoney = financialCurrencyComparable && metaAcq?.roas != null;
+  const klaviyoMoney = klaviyoCurrencyComparable && klaviyo.data;
   const channels = [
     {
       key: "shopify",
       name: "Tienda online",
-      color: "var(--store)",
+      sync: syncOf("shopify"),
       href: withPortalRouteContext("/shopify", organizationId, connectionId),
       value: data?.funnel?.has_sessions ? `${fmtNum(data.funnel.sessions)} sesiones` : `${fmtNum(data?.sales.orders_count ?? 0)} pedidos`,
       detail: `Ticket medio ${formatStoreMoney(data?.sales.aov ?? 0, 2)}`,
@@ -1652,18 +1999,32 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
     {
       key: "meta",
       name: "Meta Ads",
-      color: "var(--meta)",
-      href: withPortalRouteContext(hasMeta ? "/meta" : "/integraciones/meta", organizationId, connectionId),
-      value: hasMeta && metaAcq && financialCurrencyComparable && metaAcq.roas != null ? `ROAS ${fmtNum(metaAcq.roas, 2)}×` : hasMeta ? "Conectado" : "Sin conectar",
-      detail: hasMeta && metaAcq && financialCurrencyComparable ? `${formatStoreMoney(metaAcq.spend)} invertidos · atribuido por Meta` : hasMeta ? "Importes pendientes de validar la moneda" : "Conecta tu cuenta publicitaria",
+      sync: metaSync,
+      href: withPortalRouteContext(hasMeta && metaSync !== "reconnect" ? "/meta" : "/integraciones/meta", organizationId, connectionId),
+      ...channelReading({
+        name: "Meta",
+        sync: metaSync,
+        hasData: hasMeta,
+        metric: metaMoney ? `ROAS ${fmtNum(metaAcq?.roas ?? 0, 2)}×` : `${fmtNum(metaAcq?.purchases ?? 0)} compras`,
+        detail: metaMoney ? `${formatStoreMoney(metaAcq?.spend)} invertidos · atribuido por Meta` : "Atribuidas por Meta · importes pendientes de validar la moneda",
+        emptyDetail: "Sin actividad en los últimos 30 días",
+        connectDetail: "Conecta tu cuenta publicitaria",
+      }),
     },
     {
       key: "klaviyo",
       name: "Klaviyo",
-      color: "var(--klaviyo)",
-      href: withPortalRouteContext(hasKlaviyo ? "/klaviyo" : "/integraciones/klaviyo", organizationId, connectionId),
-      value: hasKlaviyo && klaviyo.data && klaviyoCurrencyComparable ? formatStoreMoney(klaviyo.data.totals.revenue) : hasKlaviyo ? "Conectado" : "Sin conectar",
-      detail: hasKlaviyo && klaviyoCurrencyComparable ? "Atribuidos por Klaviyo" : hasKlaviyo ? "Importes pendientes de validar la moneda" : "Conecta tu email",
+      sync: klaviyoSync,
+      href: withPortalRouteContext(hasKlaviyo && klaviyoSync !== "reconnect" ? "/klaviyo" : "/integraciones/klaviyo", organizationId, connectionId),
+      ...channelReading({
+        name: "Klaviyo",
+        sync: klaviyoSync,
+        hasData: hasKlaviyo,
+        metric: klaviyoMoney ? formatStoreMoney(klaviyo.data?.totals.revenue) : `${fmtNum(klaviyoCampaigns)} campañas`,
+        detail: klaviyoMoney ? "Atribuidos por Klaviyo" : "Enviadas en 30 días · importes pendientes de validar la moneda",
+        emptyDetail: "Sin envíos en los últimos 30 días",
+        connectDetail: "Conecta tu email",
+      }),
     },
   ];
 
@@ -1776,39 +2137,13 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
   const detail = openKpi ? kpiDetails[openKpi] ?? extraKpiDetails?.[openKpi] ?? null : null;
 
   return (
-    <div className={cx(s.root, s.prio)}>
+    <div className={cx(s.root, s.prio, s.glass)} data-glass>
       {/* ------------------------------ Titular ------------------------------ */}
       <header className={s.pHead}>
-        <p className={s.pMeta}>
-          <span>{organizationName} · {scopeLabel}</span>
-          <span>{today.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}</span>
-          <span>Últimos 30 días</span>
-        </p>
-        <h1 id="pulse-headline" className={s.pTitle}>
-          {headline}
-        </h1>
-        <div className={s.pHeadFoot}>
-          {analysisDate ? (
-            <span className={s.pStamp}>
-              <span className={s.ia}>A02</span>
-              Análisis del {analysisDate}
-            </span>
-          ) : null}
-          <button
-            type="button"
-            className={buttonVariants({ variant: "secondary", size: "sm" })}
-            onClick={() =>
-              askCopilot(
-                asConsultant
-                  ? `Explícame esto sobre ${yourStore}: «${headline}». ¿Por qué pasa y qué harías primero como su consultor?`
-                  : `Explícame esto sobre mi tienda: «${headline}». ¿Por qué pasa y qué harías primero?`,
-                asConsultant ? `Resumen de ${organizationName}` : "Resumen de tu tienda",
-              )
-            }
-          >
-            <SparklesIcon data-icon="inline-start" aria-hidden="true" />
-            Preguntar por qué
-          </button>
+        <div className={s.gHeadText}>
+          <h1 id="pulse-headline" className={s.pTitle}>
+            {headline}
+          </h1>
         </div>
       </header>
 
@@ -1829,53 +2164,66 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
         </Banner>
       ) : null}
 
-      {staleSources.length ? (
+      {sourceNotice ? (
         <Banner tone="warn" action={<Link href="/integraciones" className={buttonVariants({ variant: "secondary", size: "sm" })}>Revisar</Link>}>
-          {staleSources.map((p) => p.name).join(" y ")}{" "}
-          {staleSources.every((p) => ["connected", "syncing"].includes(p.connection?.status ?? ""))
-            ? `no se sincroniza ${ago(staleSources[0].connection?.last_sync_at ?? null)}: las cifras pueden no estar al día.`
-            : staleSources.length > 1 ? "necesitan reconectarse." : "necesita reconectarse."}
+          {sourceNotice}
         </Banner>
       ) : null}
 
       {/* ------------------------------ Cifras ------------------------------ */}
       {data ? (
+        <div className={s.gStage}>
+        <section className={s.gHero} aria-label={connectionId ? scopeLabel : organizationName}>
+          <div className={s.gHeroTop}>
+            <span className={s.gPill}>
+              Últimos 30 días{daily.length ? ` · ${dayLabel(daily[0].date)} – ${dayLabel(daily[daily.length - 1].date)}` : ""}
+            </span>
+            {data.currency_code ? <span className={s.gBadge}>{data.currency_code}</span> : null}
+          </div>
         <PulseChart
           anchorId="insight-metric-conversion"
           dates={daily.map((d) => d.date)}
+          previousDates={previousDaily.map((d) => d.date)}
           series={[
             {
               key: "sales",
               label: "Ventas netas",
-              color: "#3d3b3a",
+              color: "var(--g-sales)",
               values: daily.map((d) => isCurrentDay(d.date) ? null : d.net_sales),
               format: (v) => formatStoreMoney(v),
               total: formatStoreMoney(data.sales.net_sales),
               delta: <Delta change={salesChangePct(data.sales.net_sales, previous?.sales.net_sales ?? null)} />,
               previous: previous ? formatStoreMoney(previous.sales.net_sales) : null,
+              previousValues: previousSeries((d) => d.net_sales),
+              minStep: 1,
               aiNotice: <A02MetricNotice diagnostic={diagnostic} metricLabel="Ventas netas" metricKey="sales_net_sales" pattern={/ventas|ingresos|factur/i} audience={asConsultant ? "consultor" : "cliente"} />,
             },
             {
               key: "orders",
               label: "Pedidos",
-              color: "#3478f6",
+              color: "var(--g-orders)",
               values: daily.map((d) => isCurrentDay(d.date) ? null : d.orders_count),
               format: (v) => fmtNum(v),
               total: fmtNum(data.sales.orders_count),
               delta: <Delta change={salesChangePct(data.sales.orders_count, previous?.sales.orders_count ?? null)} />,
               previous: previous ? fmtNum(previous.sales.orders_count) : null,
+              previousValues: previousSeries((d) => d.orders_count),
+              minStep: 1,
               aiNotice: <A02MetricNotice diagnostic={diagnostic} metricLabel="Pedidos" metricKey="orders_count" pattern={/pedidos|órdenes|orders/i} audience={asConsultant ? "consultor" : "cliente"} />,
             },
             ...(showProfit && financial && daily.some((d) => d.net_profit != null)
               ? [{
                   key: "profit",
-                  label: "Beneficio neto",
-                  color: "#198754",
+                  label: data?.financial_comparability?.status === "estimated" ? "Beneficio estimado" : "Beneficio neto",
+                  color: "var(--g-profit)",
                   values: daily.map((d) => isCurrentDay(d.date) ? null : d.net_profit),
                   format: (v: number) => formatStoreMoney(v),
                   total: formatStoreMoney(financial.net_profit),
-                  delta: previous?.financial.lines_without_metrics === 0 ? <Delta change={salesChangePct(financial.net_profit, previous.financial.net_profit)} /> : null,
-                  previous: previous?.financial.lines_without_metrics === 0 && previous.financial.net_profit != null ? formatStoreMoney(previous.financial.net_profit) : null,
+                  delta: data?.financial_comparability?.can_use_financial_model && previous?.financial.comparability?.can_use_financial_model ? <Delta change={salesChangePct(financial.net_profit, previous.financial.net_profit)} /> : null,
+                  previous: data?.financial_comparability?.can_use_financial_model && previous?.financial.comparability?.can_use_financial_model ? formatStoreMoney(previous.financial.net_profit) : null,
+                  previousValues: data?.financial_comparability?.can_use_financial_model && previous?.financial.comparability?.can_use_financial_model ? daily.map(() => perDay(previous.financial.net_profit)) : undefined,
+                  previousLabel: "Media diaria del periodo anterior",
+                  minStep: 1,
                   aiNotice: <A02MetricNotice diagnostic={diagnostic} metricLabel="Beneficio neto" metricKey="net_profit" pattern={/beneficio|margen|rentab|coste/i} audience={asConsultant ? "consultor" : "cliente"} />,
                 }]
               : []),
@@ -1883,7 +2231,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
               ? [{
                   key: "conversion",
                   label: "Conversión",
-                  color: "#6256c9",
+                  color: "var(--g-conversion)",
                   values: daily.map((day) => {
                     if (isCurrentDay(day.date)) return null;
                     const rate = funnelConversionByDate.get(day.date.slice(0, 10));
@@ -1893,11 +2241,65 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
                   total: `${fmtNum(data.funnel.conversion_rate_own * 100, 2)} %`,
                   delta: previous?.conversion_rate_own != null ? <Delta change={(data.funnel.conversion_rate_own - previous.conversion_rate_own) * 100} suffix="pp" /> : null,
                   previous: previous?.conversion_rate_own != null ? `${fmtNum(previous.conversion_rate_own * 100, 2)} %` : null,
+                  previousValues: previousSeries((d) => (d.conversion_rate_own == null ? null : d.conversion_rate_own * 100)),
                   aiNotice: <A02MetricNotice diagnostic={diagnostic} metricLabel="Conversión" metricKey="conversion_rate" pattern={/conversi|embudo|carrito|checkout/i} audience={asConsultant ? "consultor" : "cliente"} />,
                 }]
               : []),
           ]}
         />
+        </section>
+
+        {/* Ventas día a día y lo que más se vende: el "en directo" de una tienda. */}
+        <section className={s.gLive} aria-labelledby="pulse-dia">
+          <DailySales days={closedDays} money={formatStoreMoney} />
+          {data.top_products.length ? (
+            <div className={s.gTopBlock}>
+              <div className={s.gLiveHead}>
+                <div>
+                  <h3 id="pulse-top">Productos más vendidos</h3>
+                  <p>Por ingresos · últimos 30 días</p>
+                </div>
+              </div>
+              <ul className={s.gTop} aria-labelledby="pulse-top">
+                {data.top_products.slice(0, 5).map((product, index) => (
+                  <li key={product.product_id}>
+                    <span className={s.gTopN} aria-hidden="true">{index + 1}</span>
+                    <span>{product.title}</span>
+                    <b className={s.num}>{formatStoreMoney(product.revenue)}</b>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </section>
+        </div>
+      ) : null}
+
+      {/* Canales: cada plataforma en su tarjeta, con su color. */}
+      {data ? (
+        <section className="zone-card" aria-labelledby="pulse-canales">
+          <h2 id="pulse-canales" className="sr-only">Canales</h2>
+          <div className={s.gCards}>
+            {channels.map((channel) => (
+              <Link key={channel.key} className={s.gCard} data-channel={channel.key} href={channel.href}>
+                <span className={s.gCardL}>
+                  <i aria-hidden="true" />{channel.name}
+                  {channel.sync ? <span className={s.gCardS} data-sync={channel.sync}>{CHANNEL_SYNC_LABEL[channel.sync]}</span> : null}
+                </span>
+                <b className={cx(s.gCardV, s.num)} data-empty={channel.value === "Sin datos" || channel.value === "Sin conectar" || undefined}>{channel.value}</b>
+                <span className={s.gCardF}>
+                  <span className={s.gCardD}>
+                    {channel.detail}
+                  </span>
+                  {channel.key === "shopify" ? <Spark values={closedDays.map((day) => day.orders_count)} color="var(--tint)" /> : null}
+                </span>
+              </Link>
+            ))}
+          </div>
+          <p className={s.gNote}>
+            Cada plataforma cuenta su parte; sus cifras no se suman. <ZoneNoteMark anchor="bloque:canales" label="Canales" />
+          </p>
+        </section>
       ) : null}
 
       {/* CAC y las cifras de más del consultor siguen como tarjetas. */}
@@ -1937,8 +2339,22 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
         />
       ) : null}
 
+      {data ? (
+        <MarketingResults
+          adsUrl={`${base}/meta/insights?days=30${scope}`}
+          route={route}
+          hasMeta={hasMeta}
+          emails={klaviyo.data ? klaviyo.data.campaigns ?? [] : null}
+          emailsFailed={Boolean(klaviyo.error) && !klaviyo.data}
+          emailMoney={klaviyoCurrencyComparable ? (value) => formatStoreMoney(value) : null}
+          onRetryEmails={() => klaviyo.reload()}
+        />
+      ) : null}
+
       {/* ------------------------------ Prioridades ------------------------------ */}
+      <A02Reading spot="home" diagnostic={monitor.data} loading={monitor.isLoading} error={monitor.error} errorCode={monitor.errorCode} organizationId={organizationId} connectionId={connectionId} onRetry={monitor.reload} />
       <div className={s.pGrid}>
+        <div className={s.gMainCol}>
         <section aria-labelledby="pulse-hoy" className={s.pMain}>
           {operations.error && !operations.data ? (
             <ErrorBlock title="No se han podido cargar las tareas" onRetry={() => operations.reload()}>{operations.error}</ErrorBlock>
@@ -1956,23 +2372,23 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
               titleId="pulse-hoy"
             />
           )}
+        </section>
           {asConsultant && connectionId ? (
             <div className={s.pMainExtras}>
               <AgentInsights agents={[
-                { key: "monitor", label: "A02 · Salud del negocio", diagnostic: monitor.data },
                 { key: "stock", label: "Stock", diagnostic: stockAi.data },
                 { key: "email", label: "Email", diagnostic: emailAi.data },
               ]} />
             </div>
-          ) : (
-            <div className={s.pMainExtras}>
-              <AgentInsights agents={[{ key: "monitor", label: "A02 · Salud del negocio", diagnostic: monitor.data }]} />
-            </div>
-          )}
-        </section>
+          ) : null}
+        </div>
 
-        <aside className={s.pSide} aria-label="Vigilar y canales">
+        <aside className={s.pSide} aria-label="Objetivos, Vigilar y canales">
           {sideTop}
+          {goals.data ? (
+            <GoalsCard objectives={goals.data.objectives} money={formatStoreMoney} href={withPortalRouteContext("/camino?vista=objetivos", organizationId, connectionId)} />
+          ) : null}
+          {data ? <MonthsCard monthly={data.financial_monthly} currentMonth={today.toISOString().slice(0, 7)} money={formatStoreMoney} /> : null}
           {signals.length ? (
             <section className={cx(s.pBlock, "zone-card")} aria-labelledby="pulse-vigilar">
               <h2 id="pulse-vigilar" className={s.pBlockT}>
@@ -1981,36 +2397,14 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
               <ul className={s.pList}>
                 {signals.map((signal) => (
                   <li key={signal.key}>
-                    <Link className={cx(s.pRow, "hover-sweep")} href={signal.href}>
-                      <span className={cx(s.dot, signal.tone === "bad" ? s.dotBad : s.dotWarn)} aria-hidden="true" />
-                      <span className={s.pRowT}>{signal.text}</span>
+                    <Link className={cx(s.gSignal, "hover-sweep")} href={signal.href}>
+                      <span className={s.gSignalSev} data-tone={signal.tone}>{signal.tone === "bad" ? "Alta" : "Media"}</span>
+                      <b>{signal.text}</b>
+                      <span>{signal.impact}</span>
                     </Link>
                   </li>
                 ))}
               </ul>
-            </section>
-          ) : null}
-
-          {data ? (
-            <section className={cx(s.pBlock, "zone-card")} aria-labelledby="pulse-canales">
-              <h2 id="pulse-canales" className={s.pBlockT}>
-                Canales <ZoneNoteMark anchor="bloque:canales" label="Canales" />
-              </h2>
-              <ul className={s.pList}>
-                {channels.map((channel) => (
-                  <li key={channel.key}>
-                    <Link className={cx(s.pRow, "hover-sweep")} href={channel.href}>
-                      <span className={s.dot} style={{ background: channel.color }} aria-hidden="true" />
-                      <span className={s.pRowT}>
-                        {channel.name}
-                        <small>{channel.detail}</small>
-                      </span>
-                      <span className={cx(s.pRowV, s.num)}>{channel.value}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-              <p className={s.pFoot}>Cada plataforma cuenta su parte; sus cifras no se suman.</p>
             </section>
           ) : null}
 
@@ -2018,7 +2412,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
             {asConsultant ? (
               <Link className={cx(s.pRow, "hover-sweep")} href="/mensajes">
                 <span className={s.pAvatar} aria-hidden="true">
-                  {organizationName.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase()}
+                  {initials(organizationName)}
                 </span>
                 <span className={s.pRowT}>
                   {organizationName}
@@ -2028,7 +2422,7 @@ export function ClientPulse({ userId, organizationId, organizationName, connecti
             ) : consultant ? (
               <Link className={cx(s.pRow, "hover-sweep")} href="/mensajes">
                 <span className={s.pAvatar} aria-hidden="true">
-                  {(consultant.full_name ?? "C").split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase()}
+                  {initials(consultant.full_name ?? "C")}
                 </span>
                 <span className={s.pRowT}>
                   {consultant.full_name ?? "Tu consultor"}

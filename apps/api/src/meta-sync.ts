@@ -5,6 +5,7 @@ import type { LoadedApiEnv } from "@e-nora/config";
 import { isIntegrationFeatureEnabled } from "@e-nora/integrations";
 import { createLogger } from "@e-nora/observability";
 import { metaGraphGet, metaGraphGetAll } from "./meta-client.js";
+import { fetchMetaAccountProfile } from "./meta-account-profile.js";
 import { getValidMetaAccessToken } from "./meta.js";
 import {
   checkOperationalOrganization,
@@ -129,6 +130,9 @@ export function isMetaTokenExpiredError(message: string): boolean {
 export function metaConnectionErrorMessage(
   blockErrors: readonly string[],
 ): string {
+  if (blockErrors.some((message) => /has NOT grant ads_management or ads_read permission/i.test(message))) {
+    return "meta_reauth_required: falta permiso de lectura de una cuenta publicitaria. Comprueba tu acceso a esa cuenta y reconecta Meta Ads autorizando ads_read en Integraciones.";
+  }
   if (blockErrors.some((message) => message.includes("Application has been deleted"))) {
     return "meta_reauth_required: Meta indica que la aplicación conectada ha sido eliminada. Configura una aplicación activa y reconecta Meta Ads en Integraciones.";
   }
@@ -1504,15 +1508,7 @@ async function syncAdAccountProfile(
   externalAdAccountId: string,
   accessToken: string,
 ): Promise<SyncBlockResult> {
-  const account = await metaGraphGet<MetaNode>(
-    externalAdAccountId,
-    accessToken,
-    {
-      fields:
-        "funding_source_details,business_country_code,tos_accepted,account_status,disable_reason,amount_spent,balance,spend_cap",
-    },
-    env.META_APP_SECRET,
-  );
+  const account = await fetchMetaAccountProfile(externalAdAccountId, accessToken, env.META_APP_SECRET);
 
   // Meta no devuelve un booleano de terminos: devuelve un mapa de que version
   // se acepto. Vacio o ausente es "no consta", no "no aceptado".

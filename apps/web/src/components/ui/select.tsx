@@ -308,17 +308,24 @@ export function SelectContent({ className, children }: { className?: string; chi
       box.style.maxHeight = `${Math.min(320, Math.max(up ? above : below, 120))}px`;
     };
     place();
+    // Cada fotograma mientras está abierta: además del scroll y el zoom, sigue al
+    // campo cuando lo mueve la propia página (datos que llegan, un menú que se pliega).
+    let last = "";
+    let frame = requestAnimationFrame(function follow() {
+      const rect = trigger?.getBoundingClientRect();
+      const now = rect ? `${rect.left},${rect.top},${rect.width},${window.innerWidth},${window.innerHeight}` : "";
+      if (now !== last) {
+        last = now;
+        place();
+      }
+      frame = requestAnimationFrame(follow);
+    });
     // Al abrir se resalta lo elegido (o la primera).
     const nodes = optionNodes(context);
     const pick = nodes.find((node) => node.dataset.key === keyOf(value)) ?? nodes[0];
     setHighlighted(pick?.dataset.key ?? null);
     pick?.scrollIntoView({ block: "nearest" });
-    window.addEventListener("scroll", place, true);
-    window.addEventListener("resize", place);
-    return () => {
-      window.removeEventListener("scroll", place, true);
-      window.removeEventListener("resize", place);
-    };
+    return () => cancelAnimationFrame(frame);
     // Solo al abrir y cerrar.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, trigger]);

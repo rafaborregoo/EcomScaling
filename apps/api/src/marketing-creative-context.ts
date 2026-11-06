@@ -39,6 +39,7 @@ export async function loadMarketingCreativeContext(db: SupabaseClient, organizat
   const history = connectionId ? await db.from("marketing_content_drafts")
     .select("id,subject,summary,created_at,status")
     .eq("organization_id", organizationId).eq("request->>store_id", connectionId)
+    .is("request->ai_lab", null)
     .order("created_at", { ascending: false }).limit(5) : { data: [], error: null };
   if (history.error) throw new Error("marketing_history_unavailable");
   const peerHistory = storeId ? await db.from("agent_outputs")

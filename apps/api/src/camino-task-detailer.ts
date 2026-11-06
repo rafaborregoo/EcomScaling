@@ -100,7 +100,8 @@ export function mergeDetailedTasks(
     ...phase,
     milestones: phase.milestones.map((milestone, milestoneIndex) => {
       const tasks = results.get(`${phaseIndex}.${milestoneIndex}`);
-      if (!tasks?.length || !keepsDraftCommitments(milestone.tasks, tasks)) return milestone;
+      // Una tarea que continúa otra conserva su id y su historia: reescribirla los perdería.
+      if (!tasks?.length || milestone.tasks.some((task) => task.source_task_id) || !keepsDraftCommitments(milestone.tasks, tasks)) return milestone;
       detailed += 1;
       return { ...milestone, tasks: fitDetailedTasks(tasks, milestone) };
     }),

@@ -954,7 +954,7 @@ export function AiPanel({
         />
         <button type="button" className={buttonVariants()} disabled={!aiReady || !prompt.trim()} onClick={() => onAsk("free")}>
           <Icon name="spark" />
-          Preguntar al Consultor IA
+          Preguntar a NORA
         </button>
       </div>
       )}
@@ -982,7 +982,7 @@ export function AiPanel({
         </div>
       ) : null}
       <p className={s.note}>
-        Responde el Consultor IA con el contexto de tu tienda y tu Guía de marca. Cuando tengas la respuesta, pulsa «Llevar al editor» en su panel y aparecerá aquí para aplicarla.
+        Responde NORA con el contexto de tu tienda y tu Guía de marca. Cuando tengas la respuesta, pulsa «Llevar al editor» en su panel y aparecerá aquí para aplicarla.
       </p>
     </>
   );
@@ -1029,7 +1029,7 @@ export function StudioChat({
       <div className={s.chatLog} aria-live="polite">
         {messages.length === 0 ? (
           <>
-            <p className={s.note}>Habla con la IA como con un compañero: pregúntale o pídele cambios y los verás aplicados en el email. Tiene tu marca, tu banco de imágenes y tus productos.</p>
+            <p className={s.note}>Habla con NORA como con un compañero: pregúntale o pídele cambios y los verás aplicados en el email. Tiene tu marca, tu banco de imágenes y tus productos.</p>
             <div className={s.chatIdeas}>
               {CHAT_IDEAS.map((idea) => (
                 <button key={idea} type="button" disabled={!aiReady || busy} onClick={() => send(idea)}>
@@ -1073,7 +1073,7 @@ export function StudioChat({
           value={draft}
           disabled={!aiReady}
           rows={2}
-          aria-label="Mensaje para la IA"
+          aria-label="Mensaje para NORA"
           placeholder="Ej.: pon el botón en verde y añade un cupón de bienvenida…"
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {

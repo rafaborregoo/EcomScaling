@@ -32,7 +32,7 @@ test("decisión del cliente sobre la IA: qué, por qué y a la propuesta", () =>
     { outputId: "o1", store: "Huerta", approved: false, titles: ["A", "B"], reason: "Ya lo hacemos" },
     "org",
   );
-  assert.equal(rendered.title, "Huerta ha descartado 2 propuestas de la IA");
+  assert.equal(rendered.title, "Huerta ha descartado 2 propuestas de NORA");
   assert.equal(rendered.message, "«A» y «B». Motivo: Ya lo hacemos");
   assert.equal(rendered.url, "/propuestas/o1?organizationId=org");
 });

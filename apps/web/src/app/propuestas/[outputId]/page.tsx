@@ -16,7 +16,7 @@ import { Badge, ButtonLink, ErrorBlock, LoadingBlock, type Tone, Card, CardActio
  * destino de los avisos «X ha aprobado / descartado N propuestas de la IA».
  */
 
-type ProposalStatus = "created" | "rejected" | "skipped" | "failed" | "pending";
+type ProposalStatus = "created" | "retired" | "rejected" | "skipped" | "failed" | "pending";
 
 type OutputDetail = {
   id: string;
@@ -25,6 +25,8 @@ type OutputDetail = {
   agent: { name: string | null; description: string | null };
   summary: string | null;
   decision: {
+    receipt_id?: string;
+    source_verified?: boolean;
     decision: string;
     decided_at: string | null;
     decided_by: { name: string | null; side: "client" | "consultant" } | null;
@@ -33,6 +35,7 @@ type OutputDetail = {
   } | null;
   proposals: Array<{
     index: number;
+    kind?: "task" | "note";
     title: string;
     original_title: string | null;
     description: string | null;
@@ -49,6 +52,7 @@ type OutputDetail = {
 };
 
 const STATUS: Record<ProposalStatus, { label: string; tone: Tone }> = {
+  retired: { label: "Aprobada · iniciativa retirada", tone: "neutral" },
   created: { label: "Aprobada · es una tarea", tone: "success" },
   rejected: { label: "Descartada", tone: "danger" },
   skipped: { label: "Quitada antes de aprobar", tone: "neutral" },
@@ -99,9 +103,9 @@ function verdict(data: OutputDetail, store: string) {
   const who = by?.side === "client" ? `${by.name ? `${by.name.split(" ")[0]} (${store})` : store}` : (by?.name ?? "Tu consultor");
   const date = data.decision.decided_at ? ` el ${when(data.decision.decided_at)}` : "";
   if (data.decision.decision === "approved") {
-    const created = count("created");
+    const created = count("created") + count("retired");
     const skipped = count("skipped");
-    return `${who} aprobó ${created} de ${total} ${total === 1 ? "tarea" : "tareas"}${date}.${skipped ? ` Quitó ${skipped} antes de aprobar.` : ""}`;
+    return `${who} aprobó ${created} de ${total} ${total === 1 ? "propuesta" : "propuestas"}${date}.${skipped ? ` Quitó ${skipped} antes de aprobar.` : ""}`;
   }
   return `${who} descartó ${total === 1 ? "la propuesta" : `las ${total} tareas propuestas`}${date}.`;
 }
@@ -151,6 +155,12 @@ function ProposalDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
           <CardAction><ButtonLink href={tasksHref} size="sm" variant="secondary">Ir a Tareas</ButtonLink></CardAction>
         </CardHeader>
         <CardContent>
+          {data.decision?.receipt_id ? (
+            <p className="mb-3 text-sm text-muted">
+              Decisión registrada · {data.decision.source_verified ? "Contenido y ámbito vinculados al recibo." : "Registro histórico sin verificación del contenido original."}
+              <span className="mt-1 block break-all text-xs">Referencia: {data.decision.receipt_id}</span>
+            </p>
+          ) : null}
           {data.decision && (data.decision.reason || data.decision.reason_category) ? (
             <dl className="grid gap-4 sm:grid-cols-[12rem_1fr]">
               {data.decision.reason_category ? (
@@ -182,7 +192,7 @@ function ProposalDetail({ bootstrap }: { bootstrap: BootstrapResponse }) {
         {data.proposals.map((proposal) => (
           <Card key={proposal.index}>
             <CardHeader>
-              <CardKicker><Badge tone={STATUS[proposal.status].tone}>{STATUS[proposal.status].label}</Badge></CardKicker>
+              <CardKicker><Badge tone={STATUS[proposal.status].tone}>{proposal.status === "created" && proposal.kind === "note" ? "Aprobada · nota guardada" : STATUS[proposal.status].label}</Badge></CardKicker>
               <CardTitle>{proposal.title}</CardTitle>
               <CardAction>{proposal.task ? (
                 <ButtonLink href={`/tareas?organizationId=${organizationId}&task=${proposal.task.id}`} size="sm" variant="ghost">

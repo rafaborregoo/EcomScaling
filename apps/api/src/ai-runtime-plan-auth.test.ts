@@ -47,3 +47,14 @@ test("A04 cron generates store scopes and the organization aggregate", () => {
     { storeId: null, connectionId: null },
   ]);
 });
+test("A17 cron comparte el plan de la tienda entre cliente y consultor", () => {
+  const stores = [{ storeId: "store-1", connectionId: "connection-1" }];
+  assert.deepEqual(orchestratorScopesForAgent("a17_plan_semanal", stores), stores);
+  assert.deepEqual(orchestratorScopesForAgent("a17_plan_semanal", []), []);
+});
+
+test("A18 cron genera exactamente un plan mensual por tienda, compartido entre roles", () => {
+  const stores = [{ storeId: "store-a", connectionId: "connection-a" }, { storeId: "store-b", connectionId: "connection-b" }];
+  assert.deepEqual(orchestratorScopesForAgent("a18_plan_mensual", stores), stores);
+  assert.deepEqual(orchestratorScopesForAgent("a18_plan_mensual", []), []);
+});

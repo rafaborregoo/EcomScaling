@@ -1,4 +1,5 @@
 "use client";
+import { A02Slot } from "@/components/a02-reading";
 import { CONSULTANT_TASK_PRESETS, consultantTaskPreset } from "./consultant-task-presets";
 import { ScrollArea, DatePicker, DateRangePicker, SearchableSelect, type SearchableSelectOption, Item, ItemActions, ItemContent, ItemDescription, ItemTitle, ToggleGroup, ToggleGroupItem } from "@/components/ui";
 
@@ -2386,6 +2387,7 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
 
       <WorkPageHeader title="Tareas">Revisa lo pendiente, decide qué hacer primero y sigue el avance de tu tienda.</WorkPageHeader>
+      {organization ? <A02Slot spot="tasks" organizationId={organization.id} connectionId={connectionId} /> : null}
       {nextTask ? (
         <HeroBlock
           tone={isTaskOverdue(nextTask) ? "late" : "next"}
@@ -2482,12 +2484,12 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       {/* Un cliente sin consultor no tenía quien le llenara esta página: el
           consultor no está, y las propuestas de la IA estaban gateadas a
           `enabled: isConsultant`. Se quedaba con una lista vacía que rellenar a
-          mano. El agente ya se ejecuta dos veces al día para su organización;
+          mano. El agente ya se ejecuta con su cadencia diaria para su organización;
           aquí es donde sus propuestas se convierten en tareas. */}
       {!isConsultant && isAutonomous && organization ? (
         <AiDiagnosticSection
           organizationId={organization.id}
-          title="Qué hacer esta semana"
+          title="Propuestas para hoy"
           getPath="/ai/task-planner"
           runPath="/ai/task-planner-run"
           loadingLabel="Buscando el siguiente paso para tu tienda…"
@@ -2495,6 +2497,40 @@ function OperationsContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           variant="tasks"
           days={30}
         />
+      ) : null}
+
+      {organization ? (
+        <section id="plan-semanal" className="scroll-mt-24">
+          <AiDiagnosticSection
+            organizationId={organization.id}
+            title="A17 · Plan semanal"
+            canReviewProposals={isConsultant || isAutonomous}
+            description="Prioridades de los próximos siete días, con el histórico y el trabajo pendiente de esta tienda. Cliente y consultor comparten el mismo plan; las nuevas tareas requieren revisión."
+            getPath="/ai/plan/week"
+            runPath="/ai/plan/week/run"
+            loadingLabel="Preparando el plan semanal de tu tienda…"
+            tasksLabelSingular="acción"
+            showLimitations
+            days={30}
+          />
+        </section>
+      ) : null}
+
+      {organization ? (
+        <section id="plan-mensual" className="scroll-mt-24">
+          <AiDiagnosticSection
+            organizationId={organization.id}
+            title="A18 · Plan mensual"
+            canReviewProposals={isConsultant || isAutonomous}
+            description="Iniciativas de los próximos treinta días, alineadas con Mi Camino, el histórico y el trabajo existente. Cliente y consultor comparten la lectura; cualquier tarea nueva requiere revisión."
+            getPath="/ai/plan/month"
+            runPath="/ai/plan/month/run"
+            loadingLabel="Preparando las prioridades del mes de tu tienda…"
+            tasksLabelSingular="iniciativa"
+            showLimitations
+            days={90}
+          />
+        </section>
       ) : null}
 
       <TabBar

@@ -1,0 +1,14 @@
+import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import fs from 'node:fs';
+const container = 'supabase_db_E-NORA';
+const record = 'tmp/imp02-financial-2026-11-02/scratch-db.json';
+const existing = fs.existsSync(record) ? JSON.parse(fs.readFileSync(record, 'utf8')) : null;
+const database = existing?.database ?? `enora_imp02_20261102_${randomBytes(3).toString('hex')}`;
+if (!/^enora_imp02_20261102_[0-9a-f]{6}$/.test(database)) throw new Error('Invalid scratch database');
+const docker = (args, input) => execFileSync('docker', ['exec', '-i', container, ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...(input === undefined ? {} : { input }) });
+if (!existing) docker(['psql', '-U', 'postgres', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-c', `CREATE DATABASE "${database}" TEMPLATE template0`]);
+fs.writeFileSync('tmp/imp02-financial-2026-11-02/scratch-db.json', JSON.stringify({ container, database, source: 'local Supabase schema only; no data copied' }, null, 2));
+const schema = docker(['pg_dump', '-U', 'postgres', '-d', 'postgres', '--schema-only', '--no-owner', '--no-privileges', '--no-subscriptions', '--no-publications', '--schema=auth', '--schema=extensions', '--schema=private', '--schema=public']);
+docker(['psql', '-U', 'postgres', '-d', database, '-v', 'ON_ERROR_STOP=1'], schema.replace(/^CREATE SCHEMA (\w+);$/gm, 'CREATE SCHEMA IF NOT EXISTS $1;'));
+console.log(JSON.stringify({ container, database, schema_loaded: true, copied_customer_rows: 0 }));

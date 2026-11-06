@@ -1,0 +1,44 @@
+[
+  {
+    "id": "5060259d-b6cf-46eb-8be1-f766988508c6",
+    "authority": "operational",
+    "status": "active",
+    "checksum": "24595ecd90bbc49dacdd93fe8343025d6fb0aba1603dac7b9890ca105d1cc0a5",
+    "version": 1
+  },
+  {
+    "id": "7103017c-e6ab-4219-88bb-b88558ee3ac0",
+    "authority": "operational",
+    "status": "active",
+    "checksum": "fe3236e7c051516b13452c7bf1be6d3feced0b4632d6e4665df61dfb749cf607",
+    "version": 1
+  },
+  {
+    "id": "805dcf02-433d-4c1a-9dd9-943d219cfc2e",
+    "authority": "operational",
+    "status": "active",
+    "checksum": "9c630d68a669f5a9b8f441bd82a02220ca3d789c540d4b3519150e80375a5895",
+    "version": 1
+  },
+  {
+    "id": "9812b91b-c551-49e3-9491-6f32b144105e",
+    "authority": "operational",
+    "status": "active",
+    "checksum": "a5c548f68a3aac3b5b82bfaa2e974a731ad3dc288bfd0fc8b6e854b778d57bf3",
+    "version": 1
+  },
+  {
+    "id": "bfda1603-d3d7-4774-bff6-29b9e2099bd0",
+    "authority": "operational",
+    "status": "active",
+    "checksum": "564d9d81a7d19963654757eed931ee0079803d0643b6edc46d2de770e73eb5a2",
+    "version": 1
+  },
+  {
+    "id": "e3d752a0-464f-4f4b-96f7-aa4476cbdae9",
+    "authority": "operational",
+    "status": "active",
+    "checksum": "5e75147bec6db16ec30536ad6f823406d6cf79df270dc2c07e7135fd91f6c8ee",
+    "version": 1
+  }
+]

@@ -1,4 +1,5 @@
 "use client";
+import { A02Reading } from "@/components/a02-reading";
 
 import { buttonVariants } from "@/components/ui/button";
 import { useMemo, useRef, useState, type ReactNode } from "react";
@@ -13,14 +14,11 @@ import { ENTITY_LABEL } from "../meta/insights-sections";
 import { fmtEur, fmtNum } from "./client-pulse-model";
 import {
   cx,
-  a02FindingText,
   Empty,
-  findingFor,
   Kpi,
   A02MetricNotice,
   SalesChart,
   SectionHead,
-  DiagnosticScopeNote,
   TargetBar,
   WorkQueue,
   dayLabel,
@@ -310,7 +308,6 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
   const finance = shop.data?.financial;
   const breakeven = finance?.has_settings && finance.items_without_cost === 0 ? finance.breakeven_roas : null;
   const mbee = finance?.has_settings && finance.items_without_cost === 0 && finance.mbee > 0 ? finance.mbee : null;
-  const metaAi = findingFor(diagnostic, /meta|anunc|ads|paid|adquis|campa/i);
   const attributionWindow = metaAttributionLabel(data.creatives.map((creative) => creative.purchase_attribution_window));
   const avgSpend = points.length ? summary.spend / points.length : null;
   // Sin ROAS de equilibrio (faltan costes), la referencia es recuperar lo
@@ -347,8 +344,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
             <p className={s.headlineDetail}>
               Has invertido {fmtEur(summary.spend)} en {periodPhrase(days)}. Meta se atribuye {fmtEur(summary.purchase_value)} en ventas{attributionWindow ? ` (${attributionWindow})` : ""}: es su cuenta, no la de tu tienda.
             </p>
-            {metaAi ? <p className={s.headlineDetail}><span className={s.ia}>A02</span>{metaAi.title}</p> : null}
-            <DiagnosticScopeNote diagnostic={diagnostic} />
+            <A02Reading spot="meta" diagnostic={diagnostic} loading={monitor.isLoading} error={monitor.error} errorCode={monitor.errorCode} organizationId={organizationId} connectionId={connectionId} viewDays={days} onRetry={monitor.reload} />
             <div className={s.heroActions}>
               <button type="button" className={buttonVariants()} onClick={() => askCopilot("En el periodo analizado, ¿qué resultado de Meta Ads merece atención primero y qué cambio probarías? Cita campaña, métrica y gasto; señala las limitaciones de atribución.", "Meta Ads")}>
                 <span className={s.ia} style={{ background: "var(--on-accent)", color: "var(--accent)" }}>
@@ -445,13 +441,12 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
       {afterHero}
 
       {/* ------------------------------ Pendiente ------------------------------ */}
-      {asConsultant ? (
       <section className={s.sec} id="meta-pendiente" aria-label="Qué hacer en Meta Ads">
         {operativaMeta.data?.output || operativaMeta.data?.source_coverage ? (
-          <Collapsible className={s.panel} aria-label="Diagnóstico de operativa Meta">
+          <Collapsible defaultOpen className={s.panel} aria-label="Diagnóstico de operativa Meta">
             <div className={s.panelH}>
               <div>
-                <h3>Análisis de la cuenta</h3>
+                <h3>A14 · Operativa de Meta Ads</h3>
                 <p className={s.sub}>
                   {operativaMeta.data.output ? (operativaMeta.data.stale ? "Datos que requieren actualización" : "Análisis más reciente") : "Estado de disponibilidad"}
                   {operativaMeta.data.generated_at ? ` · ${new Date(operativaMeta.data.generated_at).toLocaleString("es-ES")}` : ""}
@@ -463,7 +458,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
               </CollapsibleTrigger>
             </div>
             <CollapsibleContent>
-            {operativaMeta.data.output ? <DiagnosticReading tag="A14" diagnostic={operativaMeta.data} audience="consultor" /> : null}
+            {operativaMeta.data.output ? <DiagnosticReading tag="A14" diagnostic={operativaMeta.data} audience={asConsultant ? "consultor" : "cliente"} /> : null}
             {operativaMeta.data.source_coverage ? (
               <p className={s.sub}>
                 Meta: {String(operativaMeta.data.source_coverage.status ?? "sin confirmar")}
@@ -493,14 +488,13 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
           </button>
         ) : null}
       </section>
-      ) : null}
 
       {/* ------------------------------ Anuncios ------------------------------ */}
       <section className={s.sec} aria-labelledby="meta-ads">
         <SectionHead
           id="meta-ads"
           title="Anuncios"
-          ai={a02FindingText(diagnostic, /creativ|anuncio|fatiga|frecuen|hook|v[ií]deo/i)}
+          ai={null}
           fallback="Cuánto vuelve por cada euro en cada anuncio."
         />
         {failed("creatives") ? (
@@ -564,7 +558,7 @@ export function ClientMeta({ organizationId, organizationName, connectionId, use
         <SectionHead
           id="meta-measure"
           title="Píxel"
-          ai={a02FindingText(diagnostic, /p[ií]xel|medici|evento|tracking|seguimiento/i)}
+          ai={null}
           fallback="Si el píxel no envía eventos, Meta optimiza a ciegas."
         />
         <div className={s.panel}>

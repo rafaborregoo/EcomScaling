@@ -66,6 +66,7 @@ export function capaPermitida(folder, { legacyCorpus = false } = {}) {
 export function normalizaRuta(ruta) {
   return String(ruta ?? "")
     .replace(/\\/g, "/")
+    .replace(/\/{2,}/g, "/")
     .replace(/^\.\//, "")
     .replace(/\/+$/, "");
 }
@@ -128,7 +129,7 @@ const VIVO = (doc) => doc.status !== "archived" && doc.status !== "superseded";
  * `remote`: documentos globales de la BD [{ id, title, description, status,
  * checksum }]; checksum null = desconocido (se trata como cambiado).
  */
-export function planSync({ scope, local, remote }) {
+export function planSync({ scope, local, remote, prune = true }) {
   const raiz = normalizaRuta(scope);
   const vivos = remote.filter(VIVO).map((doc) => ({ ...doc, path: normalizaRuta(doc.description) }));
   const porRuta = new Map();
@@ -143,7 +144,7 @@ export function planSync({ scope, local, remote }) {
   // Solo hijos directos del scope: la lectura local no es recursiva, asi que
   // un subdirectorio no leido nunca cuenta como "borrado".
   for (const doc of vivos) {
-    if (path.posix.dirname(doc.path) === raiz && !rutasLocales.has(doc.path)) {
+    if (prune && path.posix.dirname(doc.path) === raiz && !rutasLocales.has(doc.path)) {
       plan.archive.push({ id: doc.id, path: doc.path, title: doc.title });
     }
   }
@@ -264,6 +265,8 @@ export async function executePlan(plan, api, { limit = Infinity, delayMs = 0, lo
     if (delayMs > 0) await sleep(delayMs);
   }
 
+  // An incomplete/failed import cannot retire the knowledge it was meant to replace.
+  if (manifest.errors.length || embebidos < trabajos.length) return manifest;
   for (const entry of plan.archive) {
     try {
       await archiva(entry);

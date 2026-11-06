@@ -1,8 +1,26 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createGatedFetch } from "./request-gate.js";
+import { createGatedFetch, retryAbortedTransaction } from "./request-gate.js";
 
 const tick = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test("una transacción abortada se repite, también al escribir; otro 500 no", async () => {
+  const aborted = () => new Response('{"code":"25P02"}', { status: 500 });
+  let calls = 0;
+  const recovers = retryAbortedTransaction((async () => (++calls < 3 ? aborted() : new Response("ok"))) as typeof fetch, 4, 1);
+  assert.equal((await recovers("http://x", { method: "POST" })).status, 200);
+  assert.equal(calls, 3);
+
+  calls = 0;
+  const other = retryAbortedTransaction((async () => { calls += 1; return new Response('{"code":"57014"}', { status: 500 }); }) as typeof fetch, 4, 1);
+  assert.equal((await other("http://x")).status, 500);
+  assert.equal(calls, 1);
+
+  calls = 0;
+  const stuck = retryAbortedTransaction((async () => { calls += 1; return aborted(); }) as typeof fetch, 3, 1);
+  assert.equal((await stuck("http://x")).status, 500);
+  assert.equal(calls, 3);
+});
 
 test("nunca hay más de `limit` peticiones en vuelo y todas terminan", async () => {
   let active = 0;

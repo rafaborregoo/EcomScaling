@@ -29,6 +29,23 @@ export function isReadRequest(input: Parameters<typeof fetch>[0], init?: Request
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * 25P02: una conexión del pool de PostgREST se quedó en una transacción abortada
+ * tras una cancelación (docs/audits/2026-10-26-consultor-mejoras-implementadas.md).
+ * El comando no llegó a ejecutarse, así que repetirlo es seguro incluso al
+ * escribir, y otra conexión del pool lo atiende.
+ */
+export function retryAbortedTransaction(base: typeof fetch = fetch, attempts = 4, delayMs = 200): typeof fetch {
+  return async (input, init) => {
+    for (let left = attempts; ; left -= 1) {
+      const response = await base(input, init);
+      if (left === 1 || response.status !== 500) return response;
+      if (!(await response.clone().text()).includes('"25P02"')) return response;
+      await sleep(delayMs);
+    }
+  };
+}
+
 /** Envuelve `fetch`: como mucho `limit` en vuelo; las lecturas, con timeout y un reintento. */
 export function createGatedFetch(
   limit: number,
@@ -83,6 +100,6 @@ export const SUPABASE_REST_CONCURRENCY = Number.isInteger(parsed) && parsed > 0 
 const parsedTimeout = Number(process.env.SUPABASE_REST_TIMEOUT_MS);
 
 /** Compartido por todos los clientes con el token del usuario de este proceso. */
-export const gatedFetch = createGatedFetch(SUPABASE_REST_CONCURRENCY, fetch, {
+export const gatedFetch = createGatedFetch(SUPABASE_REST_CONCURRENCY, retryAbortedTransaction(), {
   timeoutMs: Number.isInteger(parsedTimeout) && parsedTimeout > 0 ? parsedTimeout : 12_000,
 });

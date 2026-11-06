@@ -614,3 +614,9 @@
   gap: 8px;
   width: 100%;
 }
+
+
+.replanSteps li { display: inline-flex; align-items: center; gap: 6px; }
+.replanSteps span { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 999px; background: var(--surface-2, #f1efed); font-size: 12px; font-variant-numeric: tabular-nums; }
+.replanStepOn { color: var(--foreground, #2f2d2c); font-weight: 600; }
+.replanStepOn span { background: var(--nora-purple); color: #fff; }

@@ -5,6 +5,7 @@ import {
 } from "./klaviyo-subject-patterns.js";
 import { isOAuthStateExpired, issuedStateMetadata } from "./oauth-state.js";
 import crypto from "node:crypto";
+import { resolveDraftOverlayAssets } from "./overlay-draft-assets.js";
 import { createClient } from "@supabase/supabase-js";
 import type { LoadedApiEnv } from "@e-nora/config";
 import { isIntegrationFeatureEnabled } from "@e-nora/integrations";
@@ -1043,6 +1044,8 @@ type KlaviyoEmailReport = {
   currency_code?: string | null;
   organization_id: string;
   connected: boolean;
+  /** La conexión de la cuenta leída: con una cuenta por tienda, la de la tienda activa. */
+  connection?: { status: string; last_sync_at: string | null; last_error_message: string | null } | null;
   period: { days: number; start: string; end: string };
   totals: ReturnType<typeof deriveTotals>;
   previous: ReturnType<typeof deriveTotals> | null;
@@ -1144,7 +1147,7 @@ export async function getKlaviyoEmailReport(
   // hay tienda activa, se mira solo la suya.
   let accountQuery = supabase
     .from("klaviyo_accounts")
-    .select("id, currency_code")
+    .select("id, currency_code, connection_id")
     .eq("organization_id", organizationId);
   if (storeId) accountQuery = accountQuery.eq("store_id", storeId);
   const { data: accounts, error: accountError } = await accountQuery.limit(1);
@@ -1157,6 +1160,13 @@ export async function getKlaviyoEmailReport(
       detail: accountError.message,
     };
   }
+  const { data: accountConnection } = account
+    ? await supabase
+        .from("integration_connections")
+        .select("status, last_sync_at, last_error_message")
+        .eq("id", account.connection_id as string)
+        .maybeSingle()
+    : { data: null };
   if (!account) {
     const empty = summariseKlaviyoEmailRows([]);
     return {
@@ -1230,6 +1240,7 @@ export async function getKlaviyoEmailReport(
     data: {
       organization_id: organizationId,
       connected: true,
+      connection: accountConnection ?? null,
       currency_code: (account.currency_code as string | null | undefined) ?? null,
       period,
       totals: current.totals,
@@ -1699,8 +1710,9 @@ export async function pushDraftToKlaviyoTemplate(
   // Sin puerta del consultor: el cliente aprueba y envia por su cuenta. La revision del consultor es opinion
   // (apuntes), no veto (decision de Rafa, 2026-10-16; sustituye la parada de ADR-0025 en este punto).
 
+  const deliveryDraft = await resolveDraftOverlayAssets(supabase, organizationId, draft, true);
   const html = sanitizeMarketingEmailHtml(
-    typeof draft.html === "string" ? draft.html : "",
+    typeof deliveryDraft.html === "string" ? deliveryDraft.html : "",
   );
   if (!html) {
     return {

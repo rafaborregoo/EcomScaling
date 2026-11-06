@@ -1,4 +1,5 @@
 "use client";
+import { OverlayCompositionPreview } from "./overlay-composition-preview";
 
 import type { ReactNode } from "react";
 import { useState } from "react";
@@ -29,13 +30,6 @@ import s from "./content-view.module.css";
 
 export const pieceTitle = (draft: MarketingDraft) => draft.template_name || draft.subject || "Pieza sin nombre";
 
-function LabDraftInfo({ draft }: { draft: MarketingDraft }) {
-  const lab = draft.request?.ai_lab;
-  if (!lab) return null;
-  const price = (value: number) => value.toLocaleString("es-ES", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
-  return <span className="text-xs text-muted">Prueba A11 · {lab.model_label} · API estimada: {price(lab.estimated_api_cost_low)}–{price(lab.estimated_api_cost_high)} USD · {lab.synthetic ? "Datos sintéticos" : "Contexto guardado"} · Revisión humana pendiente</span>;
-}
-
 const contentTypeLabels: Record<string, string> = {
   campaign: "Campaña",
   flow_step: "Email de flow",
@@ -54,6 +48,11 @@ const hour = (iso: string) => new Date(iso).toLocaleTimeString("es-ES", { hour: 
 
 function Thumb({ draft }: { draft: MarketingDraft }) {
   const style = channelStyle(draft.request?.channel);
+  const composition = draft.request?.overlay_composition?.assets[0];
+  if (composition) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={composition.url} alt={composition.alt_text ?? draft.subject} className="h-full w-full object-contain" loading="lazy" />;
+  }
   if (toChannel(draft.request?.channel) !== "email_klaviyo") {
     return (
       <div className={`${s.thumbSocial} ${style.soft}`}>
@@ -339,7 +338,6 @@ export function ContentOverview({
                     <span>{draft.scheduled_for ? `${fmtDate(draft.scheduled_for)} · ${hour(draft.scheduled_for)}` : "Sin fecha"}</span>
                     <ChannelBadge channel={draft.request?.channel} />
                   </div>
-                  <LabDraftInfo draft={draft} />
                 </div>
               </button>
             );
@@ -356,7 +354,7 @@ export function PiecePreview({ draft }: { draft: MarketingDraft }) {
   if (toChannel(draft.request?.channel) === "email_klaviyo") {
     return (
       <div className={s.stage}>
-        <LabDraftInfo draft={draft} />
+        <OverlayCompositionPreview draft={draft} />
         <ToggleGroup aria-label="Dispositivo" value={device} onValueChange={setDevice}>
           {(["desktop", "mobile"] as const).map((value) => (
             <ToggleGroupItem key={value} value={value}>
@@ -371,7 +369,7 @@ export function PiecePreview({ draft }: { draft: MarketingDraft }) {
   const destination = getMetaDestinationUrl(draft);
   return (
     <div className={s.stage}>
-      <LabDraftInfo draft={draft} />
+      <OverlayCompositionPreview draft={draft} />
       <div className={s.social}>
         <span className="text-[0.7rem] font-medium uppercase tracking-[0.08em] text-muted">
           {isInstagramDraft(draft) ? "Instagram · orgánico" : "Patrocinado · Meta Ads"}

@@ -3,7 +3,7 @@
 
 import { ArchiveIcon } from "lucide-react";
 import { Suspense, useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { PortalShell } from "@/components/portal-shell";
 import { useActiveOrganization } from "@/components/active-organization";
 import { useActiveConnection } from "@/components/active-connection";
@@ -34,7 +34,7 @@ import {
   CardTitle,
 } from "@/components/ui";
 import { CaminoCreatePanel } from "../camino-create-panel";
-import type { ComparablePhase } from "../plan-compare";
+import { CaminoReplan } from "../camino-replan";
 import d from "../camino-desk.module.css";
 
 /**
@@ -50,12 +50,12 @@ type OpenPlan = {
   name: string;
   status: string;
   version: number;
-  strategic_plan_phases?: ComparablePhase[];
 };
 type Catalog = Array<{ key: string; label: string; unit: "money" | "pct" | "count" | "ratio" | "number" }>;
 
 function NuevoCaminoContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const router = useRouter();
+  const params = useSearchParams();
   const { organizationId: selectedOrganizationId } = useActiveOrganization();
   const { connectionId } = useActiveConnection();
   const organization =
@@ -71,7 +71,7 @@ function NuevoCaminoContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const [catalog, setCatalog] = useState<Catalog>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isArchiving, setIsArchiving] = useState(false);
-  const [replanning, setReplanning] = useState(false);
+  const [replanning, setReplanning] = useState(params.get("replan") === "1");
   const [error, setError] = useState<string | null>(null);
 
   // Se lee siempre fresco: decidir "ya hay un camino abierto" con una caché
@@ -154,31 +154,20 @@ function NuevoCaminoContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           title="Solo quien gestiona el camino puede crear uno nuevo"
           hint="Pídeselo al propietario de la cuenta o a tu consultor."
         />
-      ) : isLoading ? (
+      ) : isLoading && !plan ? (
         <LoadingBlock label="Comprobando el camino actual..." />
       ) : error ? (
         <ErrorBlock>{error}</ErrorBlock>
       ) : hasOpenPlan && plan && replanning ? (
-        <>
-          <div>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setReplanning(false)}>
-              Cancelar la replanificación
-            </Button>
-          </div>
-          <CaminoCreatePanel
-            variant={isConsultantView ? "consultant" : "client"}
-            title={`Replanificar «${plan.name}» con IA`}
-            organizationId={organization.id}
-            connectionId={connectionId || null}
-            defaultCurrency={organization.currency_code ?? "EUR"}
-            catalog={catalog}
-            replacePlan={{ id: plan.id, name: plan.name, phases: plan.strategic_plan_phases ?? [] }}
-            onCreated={() => {
-              refreshRouteViews();
-              router.push("/camino");
-            }}
-          />
-        </>
+        <CaminoReplan
+          key={plan.id}
+          reviewDraft={params.get("revisar") === "1"}
+          organizationId={organization.id}
+          connectionId={connectionId || null}
+          planId={plan.id}
+          variant={isConsultantView ? "consultant" : "client"}
+          onApplied={refreshRouteViews}
+        />
       ) : hasOpenPlan && plan ? (
         <Card>
           <CardHeader>
@@ -188,9 +177,9 @@ function NuevoCaminoContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           <CardContent>
             <div className="space-y-4">
               <p className="max-w-prose text-sm">
-                Puedes pedirle a la IA que lo replanifique con los datos de hoy y ver qué cambia antes de reemplazarlo, o
-                archivarlo y empezar de cero. No se borra nada: sus fases, hitos, tareas y revisiones se conservan en el
-                historial. Si solo quieres cambiarlo, edítalo desde Mi Camino.
+                Puedes pedirle a la IA que lo replanifique y decidir qué cambios aceptas, o archivarlo y empezar de cero.
+                No se borra nada: sus fases, hitos, tareas y revisiones se conservan en el historial. Si solo quieres
+                cambiarlo, edítalo desde Mi Camino.
               </p>
               <div role="group" aria-label="Acciones del camino" className="flex flex-wrap items-center gap-2">
                 <Button type="button" onClick={() => setReplanning(true)}>

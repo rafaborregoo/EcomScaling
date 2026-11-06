@@ -105,18 +105,19 @@ export function normalizeOutput(raw: string): AiModelLabResult["normalized"] {
         v.summary ??
         v.executive_summary ??
         v.diagnosis ??
+          v.description ??
         (parsed ? "Respuesta estructurada disponible en el original." : raw),
     ),
     findings:
-      v.findings === undefined && v.key_points === undefined
+        v.findings === undefined && v.key_points === undefined && v.design_findings === undefined
         ? sectionItems("findings")
-        : asList(v.findings ?? v.key_points),
+          : asList(v.findings ?? v.key_points ?? v.design_findings),
     recommendations:
       v.recommendations === undefined &&
       v.proposed_tasks === undefined &&
       v.proposed_writes === undefined &&
       v.actions === undefined
-        ? Array.isArray(v.initiatives) ? asList(v.initiatives) : sectionItems("recommendations")
+          ? v.suggested_use ? asList(v.suggested_use) : Array.isArray(v.initiatives) ? asList(v.initiatives) : sectionItems("recommendations")
         : asList(
             (Array.isArray(v.proposed_writes) && v.proposed_writes.length > 0 ? v.proposed_writes : undefined) ??
               v.recommendations ?? v.proposed_tasks ?? v.proposed_writes ?? v.actions,

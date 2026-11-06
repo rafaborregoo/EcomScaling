@@ -210,7 +210,11 @@ export async function getKlaviyoInsights(
           .select("id")
           .eq("organization_id", organizationId)
           .eq("provider", "klaviyo")
-          .maybeSingle(),
+          // Los intentos de OAuth sin terminar (`pending:`) no son cuentas, y
+          // una organización puede tener una cuenta por tienda.
+          .in("status", ["connected", "syncing", "error"])
+          .not("provider_account_id", "like", "pending:%")
+          .limit(1),
         supabase.rpc("klaviyo_measurement_health", {
           target_organization_id: organizationId,
           target_store_id: storeId,
@@ -247,7 +251,7 @@ export async function getKlaviyoInsights(
         end: periodEnd.toISOString(),
       },
       performance_bucket: PERFORMANCE_BUCKET,
-      connected: Boolean(connectionResult.data),
+      connected: Boolean(connectionResult.data?.length),
       health: health ?? null,
       emails: rows<KlaviyoEmailRow>(emailsResult, "emails", unavailable),
       performance: rows<KlaviyoPerformanceRow>(

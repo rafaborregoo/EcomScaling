@@ -1,0 +1,15 @@
+import assert from "node:assert/strict";
+import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
+import { aiModelLabReportSchema } from "../packages/contracts/src/ai-model-lab.js";
+import { pendingResult } from "./ai-model-lab-core.js";
+const path = ".e-nora-test-lab/ai-models/report.json", caseId = "a17_plan_semanal:real-store-runtime-2026-11-06-weekly-v2";
+const report = aiModelLabReportSchema.parse(JSON.parse(await readFile(path, "utf8"))); assert.ok(!report.active_batch);
+const failed = report.results.filter((row) => row.case_id === caseId && row.status === "failed");
+assert.equal(failed.length, 2); assert.ok(failed.every((row) => row.error?.includes("300 segundos")));
+await mkdir(".e-nora-test-lab/a17-real-2026-11-06", { recursive: true });
+await writeFile(".e-nora-test-lab/a17-real-2026-11-06/timeouts-first-attempt.json", JSON.stringify({ at: new Date().toISOString(), results: failed, usage: "No hubo recibo final: consumo desconocido, no se considera cero." }, null, 2), { flag: "wx" });
+for (const row of failed) Object.assign(row, pendingResult(caseId, row.model_id));
+const scenario = report.cases.find((row) => row.id === caseId)!; scenario.timeout_ms = 600_000;
+scenario.limitations.push("Sol y Opus agotaron 300 segundos sin recibo final en el primer intento. Se reintentan exclusivamente ellos a 600 segundos; sus fallos se conservan en el recibo local y el consumo incompleto es desconocido.");
+await writeFile(`${path}.tmp`, JSON.stringify(aiModelLabReportSchema.parse(report), null, 2)); await rename(`${path}.tmp`, path);
+console.log(JSON.stringify({ retry: failed.map((row) => row.model_id), preserved: true }));

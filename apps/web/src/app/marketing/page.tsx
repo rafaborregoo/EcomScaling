@@ -1,4 +1,5 @@
 "use client";
+import { OverlayCompositionPreview } from "./overlay-composition-preview";
 
 
 import type { ReactNode } from "react";
@@ -336,7 +337,7 @@ const authorKindLabel: Record<DraftAuthorKind, string> = {
   consultant: "Consultor",
   client: "Cliente",
   platform: "Plataforma",
-  ai: "Consultor IA",
+  ai: "NORA",
 };
 
 // Hilo de conversación de un borrador: consultor <-> cliente (y plataforma /
@@ -1531,7 +1532,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   />
                   <div>
                     <Button size="sm" variant="ghost" onClick={() => analyzePiece(openDraft)}>
-                      ¿Qué mejorarías? · Consultor IA
+                      ¿Qué mejorarías? · NORA
                     </Button>
                   </div>
                 </div>
@@ -1849,6 +1850,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 if (draft) editInBuilder(draft);
               }}
               onNewPiece={() => setTab("crear")}
+              isConsultant={isConsultantRole}
             />
           ),
           plantillas: (
@@ -1885,6 +1887,7 @@ function MarketingContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           ),
           crear: organizationId ? (
             <div className="space-y-3">
+              {studioOpen ? <OverlayCompositionPreview draft={studioOpen.draft} /> : null}
               {studioOpen?.draft.request?.camino_task ? (
                 <Card><CardContent className="flex flex-wrap items-start justify-between gap-3 text-sm">
                   <div className="min-w-0 space-y-1">
@@ -2278,7 +2281,7 @@ function ConsultantMarketingDraftPanel({
             {busy === "note" ? "Guardando..." : "Añadir objeción"}
           </Button>
           <Button size="sm" variant="ghost" onClick={analyze}>
-            Analizar con el Consultor IA
+            Analizar con NORA
           </Button>
           {["draft", "pending_approval"].includes(draft.status) ? (
             <>

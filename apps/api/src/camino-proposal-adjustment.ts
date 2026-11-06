@@ -1,4 +1,4 @@
-import { caminoCalendarHorizonDays, caminoCalendarMonthsTouched, type CaminoPlanOutput } from "@e-nora/ai";
+import { anchorCaminoMonths, caminoCalendarHorizonDays, caminoCalendarMonthsTouched, type CaminoPlanOutput } from "@e-nora/ai";
 
 /**
  * Applies explicit human edits to a proposal without rewriting the AI output.
@@ -44,7 +44,7 @@ export function adjustCaminoProposal(
     } : {}),
   } : null;
 
-  return {
+  return anchorCaminoMonths({
     ...proposal,
     horizon_months: horizonMonths,
     ...(adjustedGoal ? { goal: adjustedGoal } : {}),
@@ -62,5 +62,5 @@ export function adjustCaminoProposal(
           })),
       }))
       .filter((phase) => phase.milestones.length > 0),
-  };
+  }, referenceDate);
 }

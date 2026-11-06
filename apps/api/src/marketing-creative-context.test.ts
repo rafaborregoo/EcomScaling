@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createClient } from "@supabase/supabase-js";
 import { loadMarketingCreativeContext, loadMarketingDesignPrinciples } from "./marketing-creative-context.js";
-import { marketingCreativeRequestSchema, marketingProductVisionImages } from "./marketing-creative-method.js";
+import { marketingCreativeRequestSchema, marketingProductVisionImages, marketingCreativeMethodMetadata } from "./marketing-creative-method.js";
 
 const org = "11111111-1111-4111-8111-111111111111";
 const store = "22222222-2222-4222-8222-222222222222";
@@ -38,6 +38,7 @@ test("contexto conserva IDs reales, cero conocido y marca heredada; todas las le
   assert.deepEqual(result.brand.profile?.claim_restrictions, ["No atribuir beneficios médicos"]);
   for (const call of calls.filter((url) => !url.pathname.includes("/rpc/"))) assert.equal(call.searchParams.get(call.pathname.endsWith("organizations") ? "id" : "organization_id"), `eq.${org}`);
   assert.ok(calls.some((url) => url.searchParams.get("request->>store_id") === `eq.${connection}`));
+  assert.ok(calls.some((url) => url.searchParams.get("request->ai_lab") === "is.null"));
 });
 test("sin tienda nunca consulta catálogo ni historial de varias tiendas", async () => {
   const { db, calls } = mockDb();
@@ -72,6 +73,8 @@ test("inputs acotan referencias, variantes y productos", () => {
   assert.equal(marketingCreativeRequestSchema.safeParse({ variant_count: 11 }).success, false);
   assert.equal(marketingCreativeRequestSchema.safeParse({ research_references: [{ url: "http://example.com", observed_at: "2026-11-01T12:00:00Z", observation: "Activo" }] }).success, false);
   assert.equal(marketingCreativeRequestSchema.parse({ arbitrary: "ignored" }).creative_mode, "original");
+  assert.equal("variant_count" in marketingCreativeMethodMetadata(marketingCreativeRequestSchema.parse({})), false);
+  assert.equal(marketingCreativeMethodMetadata(marketingCreativeRequestSchema.parse({ creative_task: "hooks", variant_count: 5 })).variant_count, 5);
 });
 
 test("visión no transmite URLs externas, credenciales, puertos o duplicados; acota coste", () => {

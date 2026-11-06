@@ -1,7 +1,9 @@
 import { z } from "zod";
+export * from "./agent-approval.js";
 export * from "./copilot-evidence.js";
 export * from "./ai-model-lab.js";
 export * from "./ai-model-decisions.js";
+export * from "./a02-reading.js";
 
 export const healthResponseSchema = z.object({
   status: z.literal("ok"),
@@ -404,3 +406,4 @@ export * from "./metric-analyst.js";
 export * from "./notification-catalog.js";
 export * from "./notification-templates.js";
 export * from "./internal-email-template.js";
+export * from "./email-campaign-dossier.js";

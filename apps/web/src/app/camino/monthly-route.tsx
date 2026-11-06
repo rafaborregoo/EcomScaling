@@ -1,5 +1,5 @@
 import { Card, CardContent, Collapsible, CollapsibleContent, CollapsibleTrigger, IconChevronDown } from "@/components/ui";
-import { calendarMonth, milestonesInMonth, type MonthlyTarget, type RouteMilestone } from "./monthly-route-model";
+import { calendarMonth, milestonesInMonth, routeStart, type MonthlyTarget, type RouteMilestone } from "./monthly-route-model";
 
 /**
  * Ruta económica mes a mes del Camino: lo que el cliente ve cada mes que sigue
@@ -48,7 +48,7 @@ export function MonthlyRoute({
       <ol className="space-y-2">
         {targets.map((target) => {
           const value = target.target_value;
-          const period = calendarMonth(startDate, target.month);
+          const period = calendarMonth(routeStart(startDate, targets), target.month);
           const isFirstPartial = target.month === 1 && Number.isFinite(startDay) && new Date(startDay).getUTCDate() !== 1;
           const endDay = endDate ? Date.parse(`${endDate}T00:00:00Z`) : NaN;
           const isLastPartial = period && Number.isFinite(endDay)
@@ -59,7 +59,7 @@ export function MonthlyRoute({
           const change = value !== null && baseline && !isPartial ? Math.round((value / baseline - 1) * 100) : null;
           const seasonalChange = value !== null && target.seasonal_baseline && !isPartial
             ? Math.round((value / target.seasonal_baseline - 1) * 100) : null;
-          const inMonth = milestonesInMonth(startDate, target.month, milestones);
+          const inMonth = milestonesInMonth(routeStart(startDate, targets), target.month, milestones);
           const isGoal = goalTarget !== null && value === goalTarget;
           return (
             <li key={target.month}><Card size="sm"><CardContent className="text-sm">

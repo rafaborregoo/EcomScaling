@@ -248,7 +248,11 @@ function Simulator({ data, reload }: { data: CostModel; reload: () => void }) {
           <span className="font-mono text-xs text-muted">{row.code}</span>
           {row.changed ? <Badge tone="warn">Sin aplicar</Badge> : null}
           {row.model_decision ? (
-            <Badge tone="success">Revisión cerrada</Badge>
+            row.model_decision.status === "closed" ? (
+              <Badge tone="success">Revisión cerrada</Badge>
+            ) : (
+              <Badge tone="warn">Revisión provisional</Badge>
+            )
           ) : null}
         </span>
       ),
@@ -305,6 +309,9 @@ function Simulator({ data, reload }: { data: CostModel; reload: () => void }) {
               Perfil CLI basado en Overview y Panel con historico TEST; el
               desglose inferior estima cada vista por separado.
             </span>
+          ) : null}
+          {row.code === "a19_arquitecto_camino" && row.model_decision ? (
+            <span className="text-muted">Opus 5.5 asignado, con GPT-6.1 Sol de respaldo. Una replanificación real por API del 5-nov: estrategia 3,07 USD más detalle de tareas 3,64 USD, unos 20 min. El perfil no incluye la escritura de caché, así que el coste real queda un 7 % por encima. Una sola tienda y un solo caso.</span>
           ) : null}
           {row.code === "a04_generador_tareas" && row.model_decision ? (
             <span className="text-muted">Media de cuatro pruebas CLI con Terra, sin caché; el historial mezcla modelos.</span>

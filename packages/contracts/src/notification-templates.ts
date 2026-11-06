@@ -178,7 +178,7 @@ export const NOTIFICATION_TEMPLATES: { [T in NotificationType]: Template<T> } = 
       }
       const count = plural(data.taskIds.length || data.titles.length, "tarea nueva", "tareas nuevas");
       return {
-        title: data.byClient ? `${data.who} ha añadido ${count} de la IA` : `${data.who} te ha dejado ${count}`,
+        title: data.byClient ? `${data.who} ha añadido ${count} de NORA` : `${data.who} te ha dejado ${count}`,
         message: `${listTitles(data.titles)}. Cada una explica qué hacer y cómo saber que está hecha.`,
         url:
           data.taskIds.length === 1
@@ -235,8 +235,8 @@ export const NOTIFICATION_TEMPLATES: { [T in NotificationType]: Template<T> } = 
   ai_pending: {
     render: (data, organizationId) => ({
       title: data.forClient
-        ? `La IA te propone ${plural(data.titles.length, "tarea", "tareas")}`
-        : `La IA propone ${plural(data.titles.length, "tarea", "tareas")} para ${data.store}`,
+        ? `NORA te propone ${plural(data.titles.length, "tarea", "tareas")}`
+        : `NORA propone ${plural(data.titles.length, "tarea", "tareas")} para ${data.store}`,
       message: `${listTitles(data.titles)}. Cada una explica por qué y con qué datos. Esperan tu decisión.`,
       // Sin consultor decide el cliente desde su Inicio; el consultor, en Tareas.
       url: data.forClient ? `/dashboard?organizationId=${organizationId}` : tasksUrl(organizationId, ""),
@@ -251,8 +251,8 @@ export const NOTIFICATION_TEMPLATES: { [T in NotificationType]: Template<T> } = 
         return {
           title:
             data.proposals > 0
-              ? `La IA propone ${plural(data.proposals, "ajuste", "ajustes")} en Mi Camino por el nuevo objetivo`
-              : "La IA ha revisado Mi Camino tras el cambio de objetivo",
+              ? `NORA propone ${plural(data.proposals, "ajuste", "ajustes")} en Mi Camino por el nuevo objetivo`
+              : "NORA ha revisado Mi Camino tras el cambio de objetivo",
           message:
             data.proposals > 0
               ? "Cada ajuste explica por qué. Nada cambia hasta que alguien lo acepte."
@@ -266,7 +266,7 @@ export const NOTIFICATION_TEMPLATES: { [T in NotificationType]: Template<T> } = 
       const what = data.scope === "plan_goal" ? "la meta de Mi Camino" : "un objetivo de Mi Camino";
       return {
         title: `${data.who} ha ${verb} ${what}`,
-        message: `${data.detail}.${data.reason ? ` Motivo: ${data.reason.slice(0, 300)}.` : ""} La IA revisará el Camino y propondrá ajustes; nada cambia hasta que alguien los acepte.`,
+        message: `${data.detail}.${data.reason ? ` Motivo: ${data.reason.slice(0, 300)}.` : ""} NORA revisará el Camino y propondrá ajustes; nada cambia hasta que alguien los acepte.`,
         url: `/camino?organizationId=${organizationId}&vista=objetivos`,
         entityType: "camino_objective_change",
         entityId: data.changeId,
@@ -398,7 +398,7 @@ export const NOTIFICATION_TEMPLATES: { [T in NotificationType]: Template<T> } = 
           ? "Ya están en su lista de tareas."
           : "No ha dejado motivo.";
       return {
-        title: `${data.store} ha ${data.approved ? "aprobado" : "descartado"} ${plural(Math.max(1, data.titles.length), "propuesta", "propuestas")} de la IA`,
+        title: `${data.store} ha ${data.approved ? "aprobado" : "descartado"} ${plural(Math.max(1, data.titles.length), "propuesta", "propuestas")} de NORA`,
         message: (titles ? `${titles}. ${why}` : why).slice(0, 1000),
         url: `/propuestas/${data.outputId}?organizationId=${organizationId}`,
         entityType: "agent_output",

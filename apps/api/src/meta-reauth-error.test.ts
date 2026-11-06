@@ -38,3 +38,10 @@ test("un fallo que NO es de credenciales conserva el mensaje generico", () => {
   );
   assert.equal(metaConnectionErrorMessage([]), "meta_sync_partial_failure");
 });
+test("Meta missing ads_read permission gives an actionable reconnect message", () => {
+  const message = metaConnectionErrorMessage(["(#200) Ad account owner has NOT grant ads_management or ads_read permission, refer to documentation."]);
+  assert.match(message, /^meta_reauth_required:/);
+  assert.match(message, /ads_read/);
+  assert.match(message, /Comprueba tu acceso/);
+  assert.equal(metaConnectionErrorMessage(["(#10) Permission Denied."]), "meta_sync_partial_failure");
+});

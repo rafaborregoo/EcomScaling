@@ -1,5 +1,8 @@
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert/strict";
+import { weeklyPlanWindows } from "./plan-horizon-context.js";
+import { summarizeMonthlySalesForPlan } from "./plan-horizon-context.js";
+import { monthlyPlanningWindow } from "./plan-horizon-context.js";
 import { planQueryEvidence, resolvePlanStoreScope, scopeAlertsForPlan, summarizeActiveCaminoForPlan, summarizeActiveMonthlyInitiatives, summarizeMonthlyPlanCapacity, summarizeRecentPlanAgentRuns, summarizeRecentPlanTaskOutcomes, summarizeSiblingPlanRuns, taskBelongsToPlanStore } from "./plan-horizon-context.js";
 
 const options = {
@@ -12,6 +15,45 @@ const options = {
   },
   now: Date.parse("2026-09-27T12:00:00Z"),
 };
+
+test("A18 distingue mes parcial, mes cerrado y falta de pedidos sin inventar cobertura ni importes", () => {
+  const summary = summarizeMonthlySalesForPlan([
+    { bucket_month: "2026-11-01", orders_count: "2", net_sales: "120", aov: "60" },
+    { bucket_month: "2026-10-01", orders_count: 0, net_sales: 0, aov: 0 },
+    { bucket_month: "2026-09-01", orders_count: 3, net_sales: null, aov: "bad" },
+  ], new Date("2026-11-06T16:00:00Z"));
+  assert.equal(summary.months[0]?.calendar_period, "closed");
+  assert.equal(summary.months[0]?.net_sales, null);
+  assert.equal(summary.months[0]?.aov, null);
+  assert.equal(summary.months[1]?.observation, "no_observed_orders");
+  assert.equal(summary.months[1]?.net_sales, null);
+  assert.equal(summary.months[2]?.calendar_period, "in_progress");
+  assert.equal(summary.months[2]?.net_sales, 120);
+  assert.ok(summary.months.every((month) => month.coverage_verified === false));
+});
+
+test("A18 planifica treinta días desde el corte, no el mes natural siguiente", () => {
+  const window = monthlyPlanningWindow(new Date("2026-11-06T16:00:00Z"));
+  assert.equal(window.start, "2026-11-06T16:00:00.000Z");
+  assert.equal(window.end_exclusive, "2026-12-06T16:00:00.000Z");
+  assert.equal(monthlyPlanningWindow(new Date("2028-02-01T00:00:00Z")).end_exclusive, "2028-03-02T00:00:00.000Z");
+});
+
+test("A17 compara dos semanas completas iguales, también al cruzar mes y año", () => {
+  const windows = weeklyPlanWindows(new Date("2027-01-03T15:04:00Z"));
+  assert.deepEqual(windows.current, { start: "2026-12-27T00:00:00.000Z", end: "2027-01-03T00:00:00.000Z" });
+  assert.equal(windows.previous.end, windows.current.start);
+  assert.equal(Date.parse(windows.previous.end) - Date.parse(windows.previous.start), 7 * 86_400_000);
+  assert.equal(windows.month_to_date.start, "2027-01-01T00:00:00.000Z");
+});
+test("A17 cuenta solo los vencimientos semanales sin convertir carga en horas libres", () => {
+  const now = Date.parse("2026-11-06T00:00:00Z");
+  const tasks = [2, 8].map((days) => ({ status: "pending", store_id: "store-a", due_at: new Date(now + days * 86_400_000).toISOString() }));
+  const summary = summarizeMonthlyPlanCapacity(tasks, "store-a", { now, horizonDays: 7 });
+  assert.equal(summary.due_within_horizon, 1);
+  assert.equal(summary.observed_commitments, 2);
+  assert.equal(summary.available_capacity_hours, null);
+});
 
 test("distingue consulta disponible vacia de un error al cargar contexto", () => {
   assert.deepEqual(planQueryEvidence([], null), { status: "available", data: [] });
@@ -198,7 +240,7 @@ test("A18 cuantifica compromisos por tienda sin inventar horas de capacidad", ()
     estimated_effort_hours: null,
     available_capacity_hours: null,
     capacity_status: "not_quantifiable",
-    capacity_limit: "Las bandas cualitativas de esfuerzo describen solo tareas que las tienen; no hay capacidad mensual configurada ni equivalencia validada a horas, así que los datos no calculan disponibilidad.",
+    capacity_limit: "Las bandas cualitativas de esfuerzo describen solo tareas que las tienen; no hay capacidad configurada ni equivalencia validada a horas, así que los datos no calculan disponibilidad.",
   });
 });
 
@@ -339,10 +381,11 @@ test("summarizeOpenTasksForPlan separa lo cercano del backlog lejano", async () 
   const prioritized = summarizeOpenTasksForPlan([
     ...Array.from({ length: 3 }, (_, index) => ({ ...task(`pendiente ${index}`, 1), id: `p${index}` })),
     { ...task("en curso", null, "in_progress"), id: "doing" },
-  ], null, { now, nearLimit: 1, totalCount: 4 });
+  ], null, { now, nearLimit: 1, totalCount: 4, includeDeduplicationIndex: true });
   assert.equal(prioritized.near_term[0]?.title, "en curso");
   assert.equal(prioritized.total_open, 4);
   assert.equal(prioritized.sample_truncated, false);
+  assert.equal(prioritized.deduplication_index?.length, 4, "El índice conserva todos los títulos aunque el detalle esté limitado");
 });
 
 test("stock risk for the daily plan puts the soonest stock-out first and keeps unknown cover after", async () => {
@@ -368,5 +411,7 @@ test("specialist outputs for the daily plan keep conclusion, findings and recomm
   assert.equal(output?.output_id, "o1");
   assert.equal(output?.conclusion?.length, 320);
   assert.equal(output?.recommendations[0]?.action, "Desduplicar píxel y CAPI");
+    assert.equal(output?.human_review, "not_verified");
+    assert.equal(output?.inherited_execution_authorized, false);
   assert.equal(compactSpecialistOutputsForPlan(null).outputs.length, 0);
 });

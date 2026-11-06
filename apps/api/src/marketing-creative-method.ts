@@ -17,6 +17,11 @@ export const marketingCreativeRequestSchema = z.object({
 });
 export type MarketingCreativeRequest = z.infer<typeof marketingCreativeRequestSchema>;
 
+export function marketingCreativeMethodMetadata(request: MarketingCreativeRequest) {
+  const { variant_count, ...fields } = request;
+  return { version: MARKETING_CREATIVE_METHOD_VERSION, ...fields, ...(request.creative_task === "hooks" ? { variant_count } : {}) };
+}
+
 /** Only verified catalog rows may call this; arbitrary reference URLs never enter vision. */
 export function marketingProductVisionImages(products: ReadonlyArray<{ image_url: unknown }>, attached: ReadonlyArray<{ url: string; role: string }>, explicitlySelected: boolean) {
   const images = attached.slice(0, 6);

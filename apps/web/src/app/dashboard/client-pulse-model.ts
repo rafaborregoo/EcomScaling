@@ -7,6 +7,8 @@
  * "De las ventas al beneficio" no cuadren con el beneficio que se enseña.
  */
 
+import { connectionNeedsReconnect } from "@e-nora/contracts";
+
 export function fmtNum(value: number, decimals = 0) {
   const negative = value < 0;
   const [int, frac] = Math.abs(value).toFixed(decimals).split(".");
@@ -34,10 +36,10 @@ export function niceStep(raw: number) {
 }
 
 /** El cero y la comparación permanecen dentro del gráfico, también con devoluciones. */
-export function chartScale(values: readonly number[], comparison: number | null) {
+export function chartScale(values: readonly number[], comparison: number | null, minStep = 0) {
   const low = Math.min(0, ...values, comparison ?? 0);
   const high = Math.max(0, ...values, comparison ?? 0);
-  const step = niceStep((high - low || 1) / 3);
+  const step = Math.max(niceStep((high - low || 1) / 3), minStep);
   const bottom = Math.floor(low / step) * step;
   const top = Math.max(Math.ceil(high / step) * step, bottom + step);
   const ticks = Array.from({ length: Math.round((top - bottom) / step) + 1 }, (_, i) => Number((bottom + i * step).toPrecision(12)));
@@ -149,6 +151,45 @@ export function unitEconomics(f: PulseFinancial): UnitSlice[] {
   return slices;
 }
 
+export type GoalObjective = {
+  id: string;
+  metric_key: string;
+  label: string;
+  unit: "money" | "pct" | "ratio" | string;
+  direction: "up" | "down";
+  target_value: number;
+  actual_value: number | null;
+  progress_pct: number | null;
+  period: string;
+  measurement?: { period_label?: string | null };
+};
+
+const REVENUE_GOALS = ["net_revenue_ex_tax", "net_sales"];
+
+/**
+ * El anillo necesita una meta que se suba y con cifra real: la de ventas si la
+ * hay, y si no la primera sin cumplir. Las demás, sin repetir métrica, van
+ * debajo: primero las que tienen cifra.
+ */
+export function pickGoals<T extends GoalObjective>(objectives: T[]): { main: T | null; others: T[] } {
+  const measured = (objective: T) => objective.actual_value !== null && objective.progress_pct !== null;
+  const seen = new Set<string>();
+  const unique = objectives
+    .slice()
+    .sort((a, b) => Number(measured(b)) - Number(measured(a)))
+    .filter((objective) => {
+      if (seen.has(objective.metric_key)) return false;
+      seen.add(objective.metric_key);
+      return true;
+    });
+  const rising = unique.filter((objective) => measured(objective) && objective.direction === "up");
+  const main = rising.find((objective) => REVENUE_GOALS.includes(objective.metric_key))
+    ?? rising.find((objective) => (objective.progress_pct ?? 0) < 100)
+    ?? rising[0]
+    ?? null;
+  return { main, others: unique.filter((objective) => objective !== main).slice(0, 3) };
+}
+
 export type MonthPoint = { month: string; value: number; kind: "real" | "current" | "projection" };
 
 /**
@@ -256,3 +297,55 @@ export function shortMoney(value: number, currencySymbol = "€") {
  * anécdota: con un solo cliente nuevo el CAC es toda la inversión publicitaria.
  */
 export const MIN_NEW_CUSTOMERS_FOR_CAC = 10;
+
+const CHANNEL_STALE_MS = 86_400_000;
+
+export type ChannelConnection = { status: string; last_sync_at: string | null; last_error_message?: string | null };
+/** Conexión y sincronización de un canal: dice si sus cifras se pueden creer, no cuáles son. */
+export type ChannelSync = "ok" | "stale" | "failed" | "reconnect" | "off" | "unknown";
+
+export const CHANNEL_SYNC_LABEL: Record<ChannelSync, string> = {
+  ok: "Al día",
+  stale: "Con retraso",
+  failed: "Fallo al sincronizar",
+  reconnect: "Reconectar",
+  off: "Sin conectar",
+  unknown: "Sin comprobar",
+};
+
+export function channelSync(connection: ChannelConnection | null | undefined, now: number): ChannelSync {
+  if (!connection) return "off";
+  if (connectionNeedsReconnect(connection)) return "reconnect";
+  if (connection.status === "error") return "failed";
+  const synced = connection.last_sync_at ? Date.parse(connection.last_sync_at) : Number.NaN;
+  const fresh = ["connected", "syncing"].includes(connection.status) && now - synced <= CHANNEL_STALE_MS;
+  return fresh ? "ok" : "stale";
+}
+
+/**
+ * Qué cifra enseña la tarjeta de un canal. Un cero solo se enseña si el canal
+ * está sano y tiene actividad: sin datos, un «0 €» parecería un mal resultado.
+ */
+export function channelReading({ name, sync, hasData, metric, detail, emptyDetail, connectDetail }: {
+  name: string;
+  sync: ChannelSync;
+  hasData: boolean;
+  metric: string;
+  detail: string;
+  emptyDetail: string;
+  connectDetail: string;
+}) {
+  if (sync === "off") return { value: "Sin conectar", detail: connectDetail };
+  // La conexión no se ha podido leer: de ahí no se deduce que no exista.
+  if (sync === "unknown") return hasData ? { value: metric, detail } : { value: "Sin datos", detail: `No se ha podido comprobar ${name}` };
+  if (sync === "reconnect") {
+    return hasData
+      ? { value: metric, detail: `${detail} · puede estar incompleto: reconecta ${name}` }
+      : { value: "Sin datos", detail: `Reconecta ${name} para recuperar sus datos` };
+  }
+  if (!hasData) {
+    const reason = { stale: `${name} no ha sincronizado datos recientes`, failed: `La última sincronización de ${name} falló` };
+    return { value: "Sin datos", detail: sync === "ok" ? emptyDetail : reason[sync] };
+  }
+  return { value: metric, detail };
+}

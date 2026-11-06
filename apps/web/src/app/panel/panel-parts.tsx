@@ -4,7 +4,8 @@ import { type ReactNode } from "react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { A02MetricNotice, DiagnosticReading, type Diagnostic } from "../dashboard/client-pulse";
+import { A02MetricNotice, type Diagnostic } from "../dashboard/client-pulse";
+import { A02Reading } from "@/components/a02-reading";
 import {
   panelMoney,
   panelPct,
@@ -118,35 +119,18 @@ export function IaTag() {
   return <span className={s.ia}>IA</span>;
 }
 
-const readingDate = (iso: string) => new Date(iso).toLocaleDateString("es-ES", { day: "numeric", month: "short" });
-
 /**
  * Lo que dice A02 de la rentabilidad, con la estructura común de la IA:
  * titular, hallazgos con sus cifras y qué hacer. Si la lectura de rentabilidad
  * aún no existe se enseña la general recortada, y se dice.
  */
-export function PanelAiReading({ reading, subject }: { reading: ReturnType<typeof usePanelReading>; subject: string }) {
+export function PanelAiReading({ reading }: { reading: ReturnType<typeof usePanelReading>; subject: string }) {
   if (!reading.supported) {
-    return <p className={s.empty}>A02 lee la rentabilidad a 30 y 90 días: cambia el periodo para ver su lectura.</p>;
+    return <p className={s.empty}>A02 · 05 — La rentabilidad tiene lecturas de 30 y 90 días. Cambia el periodo para verlas.</p>;
   }
-  if (reading.isLoading) return <p className={s.empty}>Cargando la lectura de A02…</p>;
   const diagnostic = reading.diagnostic;
-  if (!diagnostic) {
-    return <p className={s.empty}>A02 todavía no ha leído {subject}. La lectura se genera dos veces al día.</p>;
-  }
-  const when = readingDate(diagnostic.generated_at);
   return (
-    <DiagnosticReading
-      tag="A02"
-      diagnostic={diagnostic}
-      audience="consultor"
-      maxFindings={4}
-      footer={
-        reading.source === "panel"
-          ? `Lectura de rentabilidad del ${when}${diagnostic.stale ? " · antigua, sin actividad nueva desde entonces" : ""}`
-          : `Lectura general del ${when}, recortada a ventas, finanzas y publicidad. La de rentabilidad aún no se ha generado.`
-      }
-    />
+    <A02Reading spot="profitability" diagnostic={diagnostic ? { ...diagnostic, result_scope: reading.source === "panel" ? "panel" : "overview" } : null} loading={reading.isLoading} error={reading.error} errorCode={reading.errorCode} days={reading.days} organizationId={reading.organizationId} connectionId={reading.connectionId} onRetry={reading.reload} />
   );
 }
 

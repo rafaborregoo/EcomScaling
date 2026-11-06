@@ -23,5 +23,5 @@ test("A16 and A11 use the same saved brief and preserve the visual ratio context
   assert.match(source, /select\("id, format, ratio, slides, creative_brief, channel"\)/);
   assert.match(source, /overlay\.creative_brief as string \| null/);
   assert.match(source, /Brief editorial compartido con A16/);
-  assert.match(source, /ratio:\s*overlay\.ratio === "1:1"/);
+  assert.match(source, /ratio = overlayRatioSchema.parse\(overlay.ratio\)/);
 });

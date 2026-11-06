@@ -30,6 +30,8 @@ export type PortalNavModule = {
   items: PortalNavItem[];
   matchPrefixes: string[];
   utility?: boolean;
+  /** Bloque de la barra lateral: los módulos contiguos del mismo bloque van juntos. */
+  navGroup?: string;
 };
 
 const dashboardItems: PortalNavItem[] = [
@@ -164,6 +166,7 @@ function sharedModules(
   return [
     {
       id: "inicio",
+      navGroup: "Día a día",
       label: "Inicio",
       description: consultant
         ? "Prioridades y lectura ejecutiva"
@@ -179,6 +182,7 @@ function sharedModules(
     },
     {
       id: "trabajo",
+      navGroup: "Día a día",
       label: "Trabajo",
       description: consultant
         ? "Estrategia, planificación y ejecución"
@@ -208,15 +212,8 @@ function sharedModules(
           ],
     },
     {
-      id: "marketing",
-      label: "Marketing",
-      description: "De la campaña al resultado",
-      icon: MegaphoneIcon,
-      matchPrefixes: ["/marketing"],
-      items: marketingItems,
-    },
-    {
       id: "comunicacion",
+      navGroup: "Día a día",
       label: "Comunicación",
       description: consultant
         ? "Conversaciones, llamadas y agenda"
@@ -230,7 +227,26 @@ function sharedModules(
       ],
     },
     {
+      id: "marketing",
+      navGroup: "Crecimiento",
+      label: "Marketing",
+      description: "De la campaña al resultado",
+      icon: MegaphoneIcon,
+      matchPrefixes: ["/marketing"],
+      items: marketingItems,
+    },
+    {
+      id: "analitica",
+      navGroup: "Crecimiento",
+      label: "Analítica",
+      description: "Informes de negocio y comparación de canales",
+      icon: ChartIcon,
+      matchPrefixes: ["/informes"],
+      items: [{ href: "/informes", label: "Informes" }],
+    },
+    {
       id: "shopify",
+      navGroup: "Canales",
       label: "Shopify",
       description: "Catálogo, inventario y promociones",
       icon: ActivityIcon,
@@ -244,6 +260,7 @@ function sharedModules(
     },
     {
       id: "meta",
+      navGroup: "Canales",
       label: "Meta",
       description: "Campañas y anuncios",
       icon: MegaphoneIcon,
@@ -256,6 +273,7 @@ function sharedModules(
     },
     {
       id: "klaviyo",
+      navGroup: "Canales",
       label: "Klaviyo",
       description: "Campañas y automatizaciones email",
       icon: MessageSquareIcon,
@@ -270,18 +288,11 @@ function sharedModules(
         { href: "/klaviyo/formularios", label: "Formularios" },
       ],
     },
-    {
-      id: "analitica",
-      label: "Analítica",
-      description: "Informes de negocio y comparación de canales",
-      icon: ChartIcon,
-      matchPrefixes: ["/informes"],
-      items: [{ href: "/informes", label: "Informes" }],
-    },
     ...(consultant
       ? [
           {
             id: "cartera",
+            navGroup: "Base",
             label: "Cartera",
             description: "Clientes y tiendas que gestionas",
             icon: UsersIcon,
@@ -295,6 +306,7 @@ function sharedModules(
       : []),
     {
       id: "conocimiento",
+      navGroup: "Base",
       label: "Conocimiento",
       description: "Contexto que utiliza el copiloto",
       icon: BookOpenIcon,

@@ -485,12 +485,19 @@ export function ComboboxContent({ className, children }: { className?: string; c
       box.style.maxHeight = `${Math.min(320, Math.max(up ? above : below, 120))}px`;
     };
     place();
-    window.addEventListener("scroll", place, true);
-    window.addEventListener("resize", place);
-    return () => {
-      window.removeEventListener("scroll", place, true);
-      window.removeEventListener("resize", place);
-    };
+    // Cada fotograma mientras está abierta: además del scroll y el zoom, sigue al
+    // campo cuando lo mueve la propia página (datos que llegan, un menú que se pliega).
+    let last = "";
+    let frame = requestAnimationFrame(function follow() {
+      const rect = anchor?.getBoundingClientRect();
+      const now = rect ? `${rect.left},${rect.top},${rect.width},${window.innerWidth},${window.innerHeight}` : "";
+      if (now !== last) {
+        last = now;
+        place();
+      }
+      frame = requestAnimationFrame(follow);
+    });
+    return () => cancelAnimationFrame(frame);
   }, [open, anchor]);
 
   // Cerrar al pulsar fuera del campo y del desplegable.

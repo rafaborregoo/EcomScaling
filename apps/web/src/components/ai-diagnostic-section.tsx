@@ -756,6 +756,8 @@ export function AiDiagnosticSection({
   variant = "full",
   bare = false,
   showInternals = false,
+  showLimitations = false,
+  canReviewProposals = true,
   showMeta = true,
   areas,
   renderPreview = false,
@@ -783,6 +785,10 @@ export function AiDiagnosticSection({
   // cuadran) y solo son accionables para platform_admin. El consultor ve el
   // analisis; si algo no es fiable, el agente ya lo dice en el propio texto.
   showInternals?: boolean;
+  /** Límites del análisis relevantes para el negocio, visibles en el plan semanal. */
+  showLimitations?: boolean;
+  /** La autorización definitiva se comprueba en el servidor. */
+  canReviewProposals?: boolean;
   // Permite ocultar el periodo y la fecha generada en paneles de decisión.
   showMeta?: boolean;
   // Adonde lleva cada hallazgo. Lo aporta la pantalla que monta la seccion,
@@ -1088,7 +1094,7 @@ export function AiDiagnosticSection({
                   proposalDecisions?.outputId === diagnostic.output_id
                     ? proposalDecisions.decisions[index]
                     : undefined;
-                const selectable = diagnostic.output_status === "pending_approval";
+                const selectable = canReviewProposals && diagnostic.output_status === "pending_approval";
                 return (
                   <li
                     key={index}
@@ -1202,6 +1208,8 @@ export function AiDiagnosticSection({
             </ul>
 
             <div className="mt-3 flex flex-wrap items-center gap-4">
+              {!canReviewProposals && diagnostic.output_status === "pending_approval" ? <p className="text-sm text-muted">Tu consultor revisará estas propuestas antes de convertirlas en tareas.</p> : null}
+              {canReviewProposals ? <>
               <Button
                 type="button"
                 disabled={
@@ -1238,6 +1246,7 @@ export function AiDiagnosticSection({
               {tasksFeedback ? (
                 <p className="text-sm text-muted">{tasksFeedback}</p>
               ) : null}
+              </> : null}
             </div>
           </div>
         ) : variant === "summary" &&
@@ -1673,12 +1682,12 @@ export function AiDiagnosticSection({
             </Accordion>
           ) : null}
 
-          {showInternals && cleanWarnings.length ? (
+          {(showInternals || showLimitations) && cleanWarnings.length ? (
             <Banner tone="warn">
               <Collapsible open={warningsExpanded} onOpenChange={setWarningsExpanded}>
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium">
-                    {cleanWarnings.length === 1 ? "1 límite" : `${cleanWarnings.length} límites`} del análisis (solo lo ves tú)
+                    {cleanWarnings.length === 1 ? "1 límite" : `${cleanWarnings.length} límites`} del análisis{showInternals ? " (solo lo ves tú)" : ""}
                   </span>
                   <CollapsibleTrigger render={<Button variant="ghost" size="sm" />}>
                     {warningsExpanded ? "Ocultar" : "Ver"}

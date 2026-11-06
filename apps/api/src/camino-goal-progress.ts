@@ -276,7 +276,10 @@ function calculateCaminoGoalProgressInternal(input: {
 
   const elapsedDays = Math.max(0, (nowMs - startMs) / DAY_MS);
   const monthlyTargets = Array.isArray(goal.monthly_targets) ? goal.monthly_targets : [];
-  const startDate = new Date(startMs);
+  // Con mes real guardado manda ese mes, no la fecha de inicio: replanificar puede empezar a mitad.
+  const firstPeriodValue = record(monthlyTargets[0])?.period;
+  const firstPeriod = typeof firstPeriodValue === "string" ? firstPeriodValue : null;
+  const startDate = firstPeriod ? new Date(`${firstPeriod}-01T00:00:00.000Z`) : new Date(startMs);
   const monthOffset = (now.getUTCFullYear() - startDate.getUTCFullYear()) * 12 + now.getUTCMonth() - startDate.getUTCMonth();
   const checkpointMonth = Math.min(monthlyTargets.length, Math.max(1,
     measurementPeriod === "calendar_month_to_date" ? monthOffset + 1 : Math.floor(elapsedDays / 30) + 1,

@@ -17,6 +17,6 @@ export function keepAllowedKnowledgeRows<T extends { audience?: unknown; visibil
   audience: readonly string[],
 ): T[] {
   return rows.filter(
-    (row) => audience.includes(String(row.audience)) || row.visibility === "global",
+    (row) => audience.includes(String(row.audience)) || row.visibility === "global" && row.audience === "consultant_only",
   );
 }

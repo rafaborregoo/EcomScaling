@@ -90,9 +90,15 @@ export function usePanelReading({
 
   return {
     supported,
+    days,
+    organizationId,
+    connectionId,
+    error: panel.error ?? general.error,
+    errorCode: panel.errorCode ?? general.errorCode,
     isLoading: supported && (panel.isLoading || (needsFallback && general.isLoading)),
     diagnostic,
     source: panel.data ? ("panel" as const) : general.data ? ("general" as const) : null,
+    reload: () => { panel.reload(); if (needsFallback) general.reload(); },
   };
 }
 

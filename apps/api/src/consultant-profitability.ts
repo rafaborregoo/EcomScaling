@@ -34,6 +34,7 @@ import type { AuthContext } from "./auth-context.js";
 import { listConsultantOrganizations } from "./consultant.js";
 import { getCached, setCached } from "./redis-cache.js";
 import { selectCurrentTargets, type MetricTargetRow } from "./shopify-metrics.js";
+import { financialUtcWindows, loadShopifyFinancialEvidence } from "./shopify-financial-comparability.js";
 
 const logger = createLogger("consultant-profitability");
 
@@ -145,7 +146,7 @@ export async function getConsultantProfitability(
     }
   }
 
-  const cacheKey = `consultant:profitability:v4:${context.user.id}:${query.organizationId ?? "all"}:${days}`;
+  const cacheKey = `consultant:profitability:v5:${context.user.id}:${query.organizationId ?? "all"}:${days}`;
   const cached = await getCached<ConsultantProfitability>(env.REDIS_URL, cacheKey);
   if (cached) return { ok: true as const, data: cached };
 
@@ -157,9 +158,7 @@ export async function getConsultantProfitability(
     return { ok: true as const, data: emptyResult(query.organizationId ?? null, days) };
   }
 
-  const end = new Date();
-  const start = new Date(end.getTime() - days * DAY_MS);
-  const previousStart = new Date(start.getTime() - days * DAY_MS);
+  const { start, end, previousStart, previousEnd } = financialUtcWindows(new Date(), days);
   const today = end.toISOString().slice(0, 10);
 
   const [storesResult, targetsResult, connectionsResult] = await Promise.all([
@@ -242,15 +241,15 @@ export async function getConsultantProfitability(
       period_end: periodEnd.toISOString(),
       target_store_id: store.id,
     });
-    const [financial, previous, funnel, daily] = await Promise.all([
-      supabase.rpc("shopify_financial_summary", rpcArgs(start, end)),
-      supabase.rpc("shopify_financial_summary", rpcArgs(previousStart, start)),
+    const [evidence, previousEvidence, funnel, daily] = await Promise.all([
+      loadShopifyFinancialEvidence(supabase, store.organization_id, store.id, start, end),
+      loadShopifyFinancialEvidence(supabase, store.organization_id, store.id, previousStart, previousEnd),
       supabase.rpc("shopify_funnel_summary", rpcArgs(start, end)),
       withDaily
         ? supabase.rpc("shopify_sales_daily", rpcArgs(start, end))
         : Promise.resolve({ data: null, error: null }),
     ]);
-    return { store, financial, previous, funnel, daily };
+    return { store, financial: evidence.financial, previous: previousEvidence.financial, financialComparability: evidence.comparability, previousComparability: previousEvidence.comparability, funnel, daily };
   });
 
   // Los gastos fijos son de la organizacion y el SQL los carga enteros a cada
@@ -302,7 +301,8 @@ export async function getConsultantProfitability(
           currency_code: store.currency_code,
         },
         financial: (item.financial.data[0] ?? null) as Record<string, unknown> | null,
-        previous: item.previous.error ? null : ((item.previous.data?.[0] ?? null) as Record<string, unknown> | null),
+        financialComparability: item.financialComparability,
+        previous: item.previous.error || !item.previousComparability.can_use_financial_model ? null : ((item.previous.data?.[0] ?? null) as Record<string, unknown> | null),
         funnel: item.funnel.error ? null : ((item.funnel.data?.[0] ?? null) as Record<string, unknown> | null),
         targets,
         periodDays: days,
@@ -321,7 +321,7 @@ export async function getConsultantProfitability(
   // todas en la moneda de los totales: no se suman divisas.
   const monthlyOrgs = new Set(
     [...new Set(sorted.map((row) => row.organization_id))].filter((org) =>
-      sorted.filter((row) => row.organization_id === org).every((row) => row.currency_code === totals.currency_code),
+      sorted.filter((row) => row.organization_id === org).every((row) => row.currency_code === totals.currency_code && !row.flags.some((flag) => flag.key === "financial_unverified")),
     ),
   );
   const orgMonthly = await monthlyPending;
@@ -344,7 +344,7 @@ export async function getConsultantProfitability(
   const orgSeries = new Map(orgMonthly.map((item) => [item.org, item.result]));
   const storeMonthly = query.organizationId
     ? []
-    : sorted.map((row) => {
+    : sorted.filter((row) => !row.flags.some((flag) => flag.key === "financial_unverified")).map((row) => {
         const result = seriesOf.get(row.store_id) ?? orgSeries.get(row.organization_id);
         const monthRows = result && !result.error && Array.isArray(result.data) ? (result.data as MonthlyRow[]) : [];
         return {
@@ -357,7 +357,7 @@ export async function getConsultantProfitability(
     level: query.organizationId ? "client" : "portfolio",
     organization_id: query.organizationId ?? null,
     period: { days, start: start.toISOString(), end: end.toISOString() },
-    generated_at: end.toISOString(),
+    generated_at: new Date().toISOString(),
     stores: sorted,
     clients: aggregateClients(sorted),
     totals,

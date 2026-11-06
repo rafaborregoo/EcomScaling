@@ -8,6 +8,7 @@ import {
   type KlaviyoResource,
 } from "./klaviyo-client.js";
 import { getValidKlaviyoAccessToken } from "./klaviyo-token-store.js";
+import { retryAbortedTransaction } from "./request-gate.js";
 import { resolveKlaviyoStoreLink } from "./klaviyo-store-link.js";
 import { klaviyoReportGroupings } from "./klaviyo-report-groupings.js";
 import {
@@ -78,6 +79,7 @@ export type KlaviyoReportInput = Pick<
 function serviceClient(env: LoadedApiEnv) {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY ?? "", {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: retryAbortedTransaction() },
   });
 }
 
@@ -362,6 +364,9 @@ export async function runKlaviyoSync(
     // que se anota `succeeded` con `records_failed: 0` mientras tres recursos
     // fallan hace que A12 lea "0 flujos" como "esta tienda no tiene flujos".
     const skipped: string[] = [];
+    // Falta elegir la métrica de compra: el sync está bien y reintentarlo no
+    // arregla nada. Se avisa en Integraciones sin marcar la conexión como rota.
+    let pendingSetup: string | null = null;
     // Un recurso que no llega por falta de permiso no es "un recurso que no
     // llego": es una casilla sin marcar en Klaviyo, y hay que decirlo con ese
     // nombre o nadie sabe que tocar.
@@ -1363,9 +1368,7 @@ export async function runKlaviyoSync(
         .eq("id", accountRowStored.id)
         .maybeSingle();
       if (metricReadError) throw metricReadError;
-      if (!accountMetric?.conversion_metric_id) {
-        await recordBlockRun("conversion_metric", now, { read: 0, error: "klaviyo_conversion_metric_not_selected" });
-      }
+      if (!accountMetric?.conversion_metric_id) pendingSetup = "klaviyo_conversion_metric_not_selected";
       await syncKlaviyoMarketingBlocks({
         client,
         api,
@@ -1418,7 +1421,7 @@ export async function runKlaviyoSync(
         status: skipped.length ? "error" : "connected",
         last_sync_at: now,
         last_error_at: skipped.length ? new Date().toISOString() : null,
-        last_error_message: skipped.length ? permissionAwareSkipMessage(skipped, deniedPermissions) : null,
+        last_error_message: skipped.length ? permissionAwareSkipMessage(skipped, deniedPermissions) : pendingSetup,
       })
       .eq("id", connectionId);
     return {

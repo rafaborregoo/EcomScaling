@@ -14,6 +14,7 @@ import { useActiveOrganization } from "@/components/active-organization";
 import { apiFetch } from "@/lib/bootstrap";
 import { readApiError } from "@/lib/api-error";
 import { getOverlayReviewWarnings } from "../overlay-review";
+import { generateOverlaySlides } from "../overlay-generation";
 import {
   AlignCenterIcon,
   Attachment,
@@ -28,7 +29,6 @@ import {
   Badge,
   Banner,
   Button,
-  ButtonLink,
   Checkbox,
   ColorField,
   DownloadIcon,
@@ -81,7 +81,7 @@ type Block = {
   lineHeight: number;
 };
 
-type Slide = { image_id: string | null; blocks: Block[] };
+type Slide = { image_id: string | null; blocks: Block[]; generation_run_id?: string };
 
 type Overlay = {
   id: string;
@@ -104,28 +104,21 @@ type BankImage = {
 type AiDraftBlock = {
   text: string;
   role: "kicker" | "headline" | "subheadline" | "cta";
-  placement: "top" | "center" | "bottom";
+  placement:
+    | "top-left" | "top-center" | "top-right"
+    | "center-left" | "center" | "center-right"
+    | "bottom-left" | "bottom-center" | "bottom-right";
+  position: { x_pct: number; y_pct: number; width_pct: number };
   align: Align;
   emphasis: "normal" | "strong";
 };
 
-const formatLabel: Record<Format, string> = {
-  single: "Imagen única",
-  carousel: "Carrusel",
-  story: "Historia",
-};
 const roleFontSize: Record<AiDraftBlock["role"], number> = {
   kicker: 30,
   headline: 78,
   subheadline: 44,
   cta: 38,
 };
-const placementY: Record<AiDraftBlock["placement"], number> = {
-  top: 7,
-  center: 40,
-  bottom: 74,
-};
-
 function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
@@ -147,15 +140,6 @@ function newBlock(partial: Partial<Block> = {}): Block {
   };
 }
 
-function encodeSpec(spec: unknown): string {
-  const json = JSON.stringify(spec);
-  const b64 =
-    typeof window === "undefined"
-      ? Buffer.from(json).toString("base64")
-      : window.btoa(unescape(encodeURIComponent(json)));
-  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
 function OverlayEditor() {
   const params = useParams<{ overlayId: string }>();
   const overlayId = params.overlayId;
@@ -175,10 +159,17 @@ function OverlayEditor() {
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [busy, setBusy] = useState<
-    "save" | "ai" | "ai-all" | "caption" | null
+    "save" | "ai" | "ai-all" | "caption" | "export" | null
   >(null);
   const [dirty, setDirty] = useState(false);
   const captionGeneration = useRef<{ fingerprint: string; key: string } | null>(null);
+  const slideGenerations = useRef(new Map<number, { fingerprint: string; key: string }>());
+  const slideRunIds = useRef(new Map<number, string>());
+  const batchGeneration = useRef<{ fingerprint: string; completed: Set<number> } | null>(null);
+  const [finalPreview, setFinalPreview] = useState<string | null>(null);
+  const [generatedDraftId, setGeneratedDraftId] = useState<string | null>(null);
+  const [composeMissing, setComposeMissing] = useState(false);
+  useEffect(() => () => { if (finalPreview) URL.revokeObjectURL(finalPreview); }, [finalPreview]);
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const [canvasWidth, setCanvasWidth] = useState(360);
@@ -243,6 +234,7 @@ function OverlayEditor() {
       setSlides(
         (overlay.slides ?? []).map((slide) => ({
           image_id: slide.image_id ?? null,
+          generation_run_id:slide.generation_run_id,
           blocks: Array.isArray(slide.blocks) ? slide.blocks : [],
         })),
       );
@@ -283,6 +275,7 @@ function OverlayEditor() {
   });
 
   function mutateSlides(next: Slide[]) {
+    setFinalPreview(null);
     setSlides(next);
     setDirty(true);
   }
@@ -403,16 +396,14 @@ function OverlayEditor() {
     blocks: AiDraftBlock[];
     palette: { text_hex: string; accent_hex: string };
   }): Block[] {
-    const perPlacement: Record<string, number> = {};
     return draft.blocks.map((item) => {
-      const offset = perPlacement[item.placement] ?? 0;
-      perPlacement[item.placement] = offset + 1;
+      const widthPct = Math.min(90, Math.max(10, item.position.width_pct));
       return newBlock({
         text: item.text,
-        xPct: 8,
-        yPct: Math.min(90, placementY[item.placement] + offset * 13),
-        widthPct: 84,
-        fontSize: roleFontSize[item.role],
+        xPct: Math.min(100 - widthPct, Math.max(0, item.position.x_pct)),
+        yPct: Math.min(90, Math.max(0, item.position.y_pct)),
+        widthPct,
+        fontSize: Math.max(12, Math.round(roleFontSize[item.role] * Math.min(1, widthPct / 84))),
         align: item.align,
         weight:
           item.emphasis === "strong" || item.role === "headline" ? 800 : 600,
@@ -425,42 +416,54 @@ function OverlayEditor() {
 
   // Pide a la IA el texto de un slide concreto. Deja el error puesto y devuelve
   // null si falla; el llamador decide si aborta.
-  async function fetchDraft(slideIndex: number): Promise<Block[] | null> {
+  async function fetchDraft(slideIndex: number, usage?: string): Promise<Block[] | null> {
     if (!base) return null;
+    const fingerprint = JSON.stringify({ objective, ratio, format, image: slides[slideIndex]?.image_id, usage });
+    if (slideGenerations.current.get(slideIndex)?.fingerprint !== fingerprint) slideGenerations.current.set(slideIndex, { fingerprint, key: crypto.randomUUID() });
     const response = await apiFetch(
       `${base}/overlays/${overlayId}/ai-draft`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slide_index: slideIndex, objective }),
+        body: JSON.stringify({ slide_index: slideIndex, objective, usage, idempotency_key: slideGenerations.current.get(slideIndex)!.key }),
       },
-      120_000,
+      420_000,
     );
     if (!response.ok) {
+      const failure = await response.clone().json().catch(() => null) as { error?: string } | null;
+      if (response.status !== 409 || !["overlay_generation_in_progress", "agent_run_create_failed"].includes(failure?.error ?? "")) slideGenerations.current.delete(slideIndex);
       setError(await readApiError(response));
       return null;
     }
-    const draft = (
+    const result = (
       (await response.json()) as {
+        editor_blocks?: Block[];
+        run_id?: string;
         draft: {
           blocks: AiDraftBlock[];
           palette: { text_hex: string; accent_hex: string };
         };
       }
-    ).draft;
-    return mapDraftBlocks(draft);
+    );
+    slideGenerations.current.delete(slideIndex);
+    if (result.run_id) slideRunIds.current.set(slideIndex,result.run_id);
+    return result.editor_blocks ?? mapDraftBlocks(result.draft);
   }
 
   async function aiDraft() {
     if (!base || !slide?.image_id) return;
     setBusy("ai");
     setError(null);
+    setFinalPreview(null);
     try {
+      if (!(await persistCurrent())) return;
       const mapped = await fetchDraft(current);
       if (!mapped) return;
-      setSlideBlocks(mapped);
+      setSlides(previous => previous.map((item,index) => index === current ? { ...item, blocks:mapped, generation_run_id:slideRunIds.current.get(current) } : item));
+      setDirty(false);
       setSelectedId(mapped[0]?.id ?? null);
       toast.success(`Texto propuesto para el slide ${current + 1}; ajústalo`);
+    } catch { setError("No se pudo recuperar la respuesta. Reintenta para continuar la misma generación.");
     } finally {
       setBusy(null);
     }
@@ -477,73 +480,104 @@ function OverlayEditor() {
     if (targets.length === 0) return;
     setBusy("ai-all");
     setError(null);
+    setFinalPreview(null);
     try {
+      if (!(await persistCurrent())) return;
       const next = [...slides];
       let done = 0;
-      for (const { index } of targets) {
-        const mapped = await fetchDraft(index);
-        if (!mapped) return;
-        next[index] = { ...next[index], blocks: mapped };
-        done += 1;
-      }
-      mutateSlides(next);
+      const fingerprint = JSON.stringify({ objective, ratio, format, images: slides.map(s => s.image_id) });
+      if (batchGeneration.current?.fingerprint !== fingerprint) batchGeneration.current = { fingerprint, completed: new Set() };
+      const finished = await generateOverlaySlides(targets.map(target => target.index), batchGeneration.current.completed, fetchDraft, (index,mapped) => {
+        next[index] = { ...next[index]!, blocks: mapped, generation_run_id:slideRunIds.current.get(index) }; setSlides([...next]); setDirty(false); done += 1;
+      });
+      if (!finished) return;
+      batchGeneration.current = null;
       setSelectedId(null);
       toast.success(
         `Texto propuesto para ${done} ${done === 1 ? "slide" : "slides"}; ajústalo por slide`,
       );
+    } catch { setError("Se conservan los slides terminados. Reintenta para continuar con los pendientes.");
     } finally {
       setBusy(null);
     }
+  }
+
+  async function persistCurrent() {
+    if (!base) return false;
+    if (!dirty) return true;
+    const response = await apiFetch(`${base}/overlays/${overlayId}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, format, ratio, slides, creative_brief: objective, channel }),
+    });
+    if (!response.ok) { setError(await readApiError(response)); return false; }
+    setDirty(false);
+    return true;
   }
 
   async function save() {
-    if (!base) return;
     setBusy("save");
     setError(null);
     try {
-      const response = await apiFetch(`${base}/overlays/${overlayId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, format, ratio, slides, creative_brief: objective, channel }),
-      });
-      if (!response.ok) {
-        setError(await readApiError(response));
-        return;
-      }
-      setDirty(false);
-      toast.success("Pieza guardada");
+      if (await persistCurrent()) toast.success("Pieza guardada");
     } finally {
       setBusy(null);
     }
   }
 
-  async function generateCaption() {
+  async function generateCaption(destination?: "email_klaviyo") {
     if (!base) return;
-    const fingerprint = JSON.stringify({ overlayId, objective, slides });
-    if (!captionGeneration.current || captionGeneration.current.fingerprint !== fingerprint) {
-      captionGeneration.current = { fingerprint, key: `${crypto.randomUUID()}:99` };
-    }
     setBusy("caption");
     setError(null);
+    setFinalPreview(null);
     try {
+      if (!(await persistCurrent())) return;
+      const next = [...slides];
+      if (composeMissing) {
+        const indices = next.flatMap((item,index) => item.image_id && !item.blocks.length ? [index] : []);
+        const ready = await generateOverlaySlides(indices, new Set(), index => fetchDraft(index,destination), (index,mapped) => {
+          next[index] = { ...next[index]!, blocks:mapped, generation_run_id:slideRunIds.current.get(index) };
+          setSlides([...next]); setDirty(false);
+        });
+        if (!ready) return;
+      }
+      const fingerprint = JSON.stringify({ overlayId, objective, slides:next, destination });
+      if (captionGeneration.current?.fingerprint !== fingerprint) captionGeneration.current = { fingerprint, key: `${crypto.randomUUID()}:99` };
       const response = await apiFetch(
         `${base}/overlays/${overlayId}/caption`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ objective, idempotency_key: captionGeneration.current.key }),
+          body: JSON.stringify({ objective, channel: destination, idempotency_key: captionGeneration.current.key }),
         },
-        180_000,
+        420_000,
       );
       if (!response.ok) {
         setError(await readApiError(response));
         return;
       }
+      const result = await response.json() as { draft?: { id?: string } };
+      setGeneratedDraftId(result.draft?.id ?? null);
+      await load();
       captionGeneration.current = null;
-      toast.success("Caption generado; revísalo en Marketing → Borradores");
+      toast.success("Borrador creado con las imágenes de esta pieza; ábrelo para revisarlo.");
+    } catch { setError("Se conservan las imágenes terminadas. Reintenta para recuperar el borrador o continuar.");
     } finally {
       setBusy(null);
     }
+  }
+
+  async function downloadSlide(index: number, filename: string, preview = false) {
+    if (!base) return;
+    setBusy("export"); setError(null);
+    try {
+      if (!(await persistCurrent())) return;
+      const response = await apiFetch(`${base}/overlays/${overlayId}/render?slide_index=${index}`, {}, 60_000);
+      if (!response.ok) { setError(await readApiError(response)); return; }
+      const url = URL.createObjectURL(await response.blob());
+      if (preview) setFinalPreview(url);
+      else { const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 60_000); }
+    } catch { setError("No se pudo preparar la imagen. Reintenta la descarga."); }
+    finally { setBusy(null); }
   }
 
   const exportLinks = useMemo(() => {
@@ -560,20 +594,16 @@ function OverlayEditor() {
       .map((s, index) => {
         const image = s.image_id ? imagesById.get(s.image_id) : null;
         if (!image) return null;
-        const spec = encodeSpec({ ratio, blocks: s.blocks });
         return {
           index,
           filename: multi ? `${slug}-${index + 1}.png` : `${slug}.png`,
-          href: `/marketing/imagenes/render?src=${encodeURIComponent(
-            image.public_url,
-          )}&spec=${spec}`,
         };
       })
       .filter(
-        (entry): entry is { index: number; filename: string; href: string } =>
+        (entry): entry is { index: number; filename: string } =>
           entry !== null,
       );
-  }, [slides, ratio, imagesById, name]);
+  }, [slides, imagesById, name]);
 
   if (!organizationId) return <EmptyState title="Elige una tienda" hint="" />;
   if (isLoading) {
@@ -604,6 +634,7 @@ function OverlayEditor() {
 
   return (
     <div className="portal-page marketing-workspace space-y-6">
+      <style>{`@font-face{font-family:NoraOverlay;src:url('/fonts/Geist-Regular.ttf') format('truetype');font-display:swap;}`}</style>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <Link href="/marketing/imagenes" className="text-sm">
@@ -652,10 +683,22 @@ function OverlayEditor() {
           >
             {busy === "save" ? "Guardando…" : "Guardar"}
           </Button>
+          <Button type="button" variant="secondary" disabled={busy !== null || !slideImage} onClick={() => void downloadSlide(current, "vista-final.png", true)}>Ver imagen final</Button>
+          <Button type="button" variant="secondary" disabled={busy !== null || slides.every(s => !s.image_id)} onClick={() => void generateCaption("email_klaviyo")}>Crear mailing con esta pieza</Button>
         </div>
       </div>
 
       {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+      <Checkbox checked={composeMissing} disabled={busy !== null} onCheckedChange={setComposeMissing}>Al crear el borrador, añadir texto con IA a las imágenes que aún no lo tengan. Cada imagen usa una generación.</Checkbox>
+      {generatedDraftId ? <Banner tone="success"><Link href={`/marketing?section=crear&draft=${generatedDraftId}`}>Abrir borrador creado con esta pieza</Link></Banner> : null}
+      {finalPreview ? <Card>
+        <CardHeader><CardTitle>Imagen final exportable</CardTitle></CardHeader>
+        <CardContent>
+          {/* The exact exported blob is the preview; image optimization would alter it. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={finalPreview} alt="Composición final con el texto guardado" className="max-h-[640px] max-w-full object-contain" />
+        </CardContent>
+      </Card> : null}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
         {/* Lienzo + tira de slides */}
@@ -726,6 +769,7 @@ function OverlayEditor() {
                   style={{
                     color: block.color,
                     fontSize: block.fontSize * scale,
+                    fontFamily: "NoraOverlay, sans-serif",
                     fontWeight: block.weight,
                     lineHeight: block.lineHeight,
                     textAlign: block.align,
@@ -921,14 +965,13 @@ function OverlayEditor() {
                         {exportLinks.length > 1 ? `Slide ${entry.index + 1} · PNG` : "PNG"}
                       </AttachmentDescription>
                     </AttachmentContent>
-                    <AttachmentTrigger render={<a href={entry.href} download={entry.filename} aria-label={`Descargar ${entry.filename}`} />} />
+                    <AttachmentTrigger render={<button type="button" disabled={busy !== null} onClick={() => void downloadSlide(entry.index, entry.filename)} aria-label={`Descargar ${entry.filename}`} />} />
                   </Attachment>
                 ))}
               </AttachmentGroup>
               {dirty ? (
                 <p className="mt-1 text-xs text-muted">
-                  Tienes cambios sin guardar; el PNG usa lo último editado, no lo
-                  guardado.
+                  Al descargar guardaremos tus cambios y usaremos esa misma versión.
                 </p>
               ) : null}
             </div>

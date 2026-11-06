@@ -6,6 +6,7 @@ import {
   Activity,
   Bot,
   BookOpen,
+  Clapperboard,
   ClipboardCheck,
   ChevronRight,
   CircleDollarSign,
@@ -59,6 +60,10 @@ const navigation = [
     ],
   },
   {
+    label: "Contenido",
+    items: [{ href: "/admin/contenido-video", label: "Calendario de vídeos", icon: Clapperboard }],
+  },
+  {
     label: "Finanzas",
     items: [
       { href: "/admin/finanzas", label: "Finanzas", icon: CircleDollarSign },
@@ -90,6 +95,7 @@ const pageContext: Record<string, { area: string; description: string }> = {
   "Tools del copiloto": { area: "Operaciones", description: "Herramientas disponibles, permisos y agentes que las utilizan." },
   "Plantillas PDF": { area: "Operaciones", description: "Plantillas nativas que reutiliza el copiloto para generar informes PDF." },
     "Laboratorio de mailing": { area: "Operaciones", description: "Biblioteca interna de plantillas y patrones editoriales de E-NORA." },
+  "Calendario de vídeos": { area: "Contenido", description: "Los vídeos de Instagram del mes: calendario, banco de ideas por módulo y diseños." },
   Finanzas: { area: "Finanzas", description: "Ingresos, gastos, resultado y movimientos de la plataforma." },
   Facturación: { area: "Finanzas", description: "Planes, concesiones y configuración de facturación." },
   Auditoría: { area: "Sistema", description: "Historial de acciones administrativas y cambios en la plataforma." },

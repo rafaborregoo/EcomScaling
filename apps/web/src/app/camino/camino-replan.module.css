@@ -1,0 +1,66 @@
+.flow { display: grid; gap: 16px; min-width: 0; }
+.head { display: grid; gap: 4px; }
+.head h2 { margin: 0; font-size: 24px; font-weight: 600; color: var(--foreground, #242323); }
+.head p { margin: 0; color: var(--muted, #696664); }
+.muted { margin: 0; font-size: 14px; color: var(--muted, #696664); }
+
+.steps { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; padding: 0; list-style: none; font-size: 14px; color: var(--muted, #696664); }
+.steps li { display: inline-flex; align-items: center; gap: 6px; }
+.steps span { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--nora-gray-100, #efedea); font-size: 12px; font-weight: 600; }
+.stepOn { color: var(--foreground, #242323); font-weight: 600; }
+.stepOn span { background: var(--nora-purple); color: #fff; }
+
+.block { display: grid; gap: 12px; min-width: 0; padding: 16px; border: 1px solid var(--border, #e5e3df); border-radius: 18px; background: var(--surface, #fdfcfb); }
+.block h3 { margin: 0; font-size: 16px; font-weight: 600; color: var(--foreground, #242323); }
+.block p { margin: 0; }
+.titleRow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: space-between; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.details { min-width: 0; }
+.plainList { display: grid; gap: 6px; margin: 0; padding-left: 18px; font-size: 14px; }
+.fieldError { margin: 0; font-size: 14px; color: var(--danger, #b42318); }
+.briefLabel { font-size: 16px; font-weight: 600; color: var(--foreground, #242323); }
+
+.scopes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.scope { align-items: flex-start; min-width: 0; padding: 12px; border: 1px solid var(--border, #e5e3df); border-radius: 12px; cursor: pointer; }
+.scope:has(input:checked) { border-color: var(--nora-purple); background: #f0eefc; }
+.scope:has(input:focus-visible) { outline: 2px solid var(--nora-purple); outline-offset: 2px; }
+.scope b { display: block; font-weight: 600; color: var(--foreground, #242323); }
+.scope span span,
+.scope b + span { display: block; margin-top: 2px; font-size: 14px; font-weight: 400; color: var(--muted, #696664); }
+
+.duration { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+.range { flex: 1 1 220px; min-width: 0; accent-color: var(--nora-purple); }
+.months { display: inline-flex; align-items: center; gap: 8px; width: 132px; font-size: 14px; }
+
+.compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 0; }
+.compare div { display: grid; gap: 2px; }
+.compare dt, .facts dt { font-size: 14px; color: var(--muted, #696664); }
+.compare dd { margin: 0; font-weight: 600; color: var(--foreground, #242323); }
+
+.facts { display: grid; gap: 8px; margin: 0; }
+.facts div { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 8px; }
+.facts dd { margin: 0; color: var(--foreground, #242323); overflow-wrap: anywhere; }
+
+.route { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.route li { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(0, 3fr); gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border, #e5e3df); }
+.route li:first-child { border-top: 0; }
+.route dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.route dt { font-size: 14px; color: var(--muted, #696664); }
+.route dd { margin: 0; color: var(--foreground, #242323); }
+.changed { font-weight: 600; color: var(--nora-purple); }
+
+.changes { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.changes li { display: grid; gap: 6px; min-width: 0; padding: 12px; border: 1px solid var(--border, #e5e3df); border-radius: 12px; }
+.changeOpen { border-color: var(--nora-purple) !important; background: #f0eefc; }
+.changeHead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.changeHead b { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.reason { font-size: 14px; color: var(--foreground, #242323); }
+
+.version { display: grid; gap: 12px; padding: 0 24px 24px; overflow-y: auto; }
+.versionMilestone { display: grid; gap: 4px; }
+
+@media (max-width: 720px) {
+  .scopes { grid-template-columns: minmax(0, 1fr); }
+  .facts div { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .route li { grid-template-columns: minmax(0, 1fr); }
+}

@@ -230,7 +230,8 @@ export type ProfitFlagKey =
   | "no_settings"
   | "no_sessions"
   | "no_currency"
-  | "mixed_currency";
+  | "mixed_currency"
+  | "financial_unverified";
 
 export type ProfitFlag = {
   key: ProfitFlagKey;
@@ -378,6 +379,7 @@ export type StoreRowInput = {
     currency_code: string | null;
   };
   financial: FinancialSummaryRow | null;
+  financialComparability: { can_use_financial_model: boolean } | null;
   previous: FinancialSummaryRow | null;
   funnel: { days_with_sessions?: unknown; sessions?: unknown } | null;
   targets: Record<string, number>;
@@ -418,6 +420,9 @@ export function buildStoreRow(input: StoreRowInput): ProfitStoreRow {
   // queda en "datos" en vez de enseñar euros que podrian ser otra divisa.
   if (!input.store.currency_code) {
     flags.unshift({ key: "no_currency", label: "Moneda sin confirmar", blocking: true });
+  }
+  if (input.financialComparability?.can_use_financial_model !== true) {
+    flags.unshift({ key: "financial_unverified", label: "Rentabilidad pendiente de verificar", blocking: true });
   }
   const marginTarget = input.targets.net_margin_pct ?? null;
   const tier = classifyTier({
@@ -575,12 +580,12 @@ export function aggregateClients(stores: ProfitStoreRow[]): ProfitClientRow[] {
       flags.unshift({ key: "mixed_currency", label: "Varias monedas", blocking: true });
     }
 
-    if (mixed) {
+    if (mixed || own.some((store) => store.flags.some((flag) => flag.key === "financial_unverified"))) {
       return {
         organization_id: organizationId,
         name: own[0]?.organization_name ?? "Cliente",
         store_count: own.length,
-        currency_code: null,
+        currency_code: mixed ? null : currency,
         revenue: null,
         net_profit: null,
         margin_pct: null,
@@ -684,8 +689,9 @@ function baseCurrency(stores: ProfitStoreRow[]): string | null {
 }
 
 export function aggregateTotals(stores: ProfitStoreRow[]): ProfitTotals {
-  const currency = baseCurrency(stores);
-  const counted = stores.filter((store) => store.currency_code === currency && currency !== null);
+  const verified = stores.filter((store) => !store.flags.some((flag) => flag.key === "financial_unverified"));
+  const currency = baseCurrency(verified);
+  const counted = verified.filter((store) => store.currency_code === currency && currency !== null);
   const revenue = counted.reduce((total, store) => total + store.revenue, 0);
   const profit = counted.reduce((total, store) => total + store.net_profit, 0);
   const orders = counted.reduce((total, store) => total + store.orders, 0);
@@ -752,6 +758,7 @@ export function periodLabel(days: number): string {
 const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
 
 const FLAG_PHRASE: Partial<Record<ProfitFlagKey, string>> = {
+  financial_unverified: "faltan importes, costes o sincronización verificables",
   no_cogs: "falta el coste de producto",
   no_fixed: "no hay gastos fijos",
   no_settings: "faltan comisiones y envío por pedido",

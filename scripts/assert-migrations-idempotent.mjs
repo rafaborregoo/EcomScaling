@@ -24,6 +24,10 @@ const migrationsDir = path.join(root, "supabase", "migrations");
 
 /** Migraciones con permiso explicito para saltarse una regla, y por que. */
 const EXCEPCIONES = new Map([
+  // IMP-02 preserves the TABLE signatures of margin, finance and advertising
+  // RPCs and replaces only their bodies. Real PostgreSQL fixtures apply the
+  // migration twice; dropping these functions would discard existing grants.
+  ["20270115120000_imp02_financial_comparability.sql", ["function-returns-table"]],
   // Solo corrige el cuerpo (desempate por created_at) conservando la firma y el
   // returns table de 20260907240000: `create or replace` basta y es
   // reaplicable. Un `drop` delante borraria los grants y el search_path que

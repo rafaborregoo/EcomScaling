@@ -40,6 +40,7 @@ const CHANGE_MIN_SPEND = 50;
 
 export type MetaCreativeRow = {
   ad_id: string;
+  campaign_id: string | null;
   ad_name: string;
   ad_set_name: string;
   campaign_name: string;
@@ -316,7 +317,7 @@ export async function getMetaInsights(
       connectionId,
     );
 
-    const cacheKey = `meta:insights:${organizationId}:${storeId ?? "org"}:${periodDays}`;
+    const cacheKey = `meta:insights:v2:${organizationId}:${storeId ?? "org"}:${periodDays}`;
     const cached = await getCached<MetaInsightsData>(env.REDIS_URL, cacheKey);
 
     if (cached) {
@@ -341,6 +342,7 @@ export async function getMetaInsights(
       pixelsResult,
       audiencesResult,
       changesResult,
+      adCampaignsResult,
     ] = await Promise.all([
       supabase.rpc("meta_spend_summary", window),
       supabase.rpc("meta_performance_daily", {
@@ -366,7 +368,12 @@ export async function getMetaInsights(
         window_days: CHANGE_WINDOW_DAYS,
         min_spend: CHANGE_MIN_SPEND,
       }),
+      // ponytail: tope de 1.000 filas de PostgREST; por encima, esos anuncios quedan sin enlace. Si pasa, campaign_id en la RPC.
+      supabase.from("meta_ads").select("id, meta_ad_sets(campaign_id)").eq("organization_id", organizationId),
     ]);
+
+    const campaignByAd = new Map(((adCampaignsResult.data ?? []) as unknown as Array<{ id: string; meta_ad_sets: { campaign_id: string } | null }>)
+      .map((ad) => [ad.id, ad.meta_ad_sets?.campaign_id ?? null]));
 
     const unavailable: string[] = [];
 
@@ -429,7 +436,8 @@ export async function getMetaInsights(
         bucket_date: String(row.bucket_date),
         roas: nullableNum(row.roas),
       })),
-      creatives: rows(creativesResult, "creatives", unavailable),
+      creatives: rows<MetaCreativeRow>(creativesResult, "creatives", unavailable)
+        .map((row) => ({ ...row, campaign_id: campaignByAd.get(row.ad_id) ?? null })),
       ranking_distribution: rows(rankingResult, "ranking", unavailable),
       learning: rows(learningResult, "learning", unavailable),
       pixels: rows(pixelsResult, "pixels", unavailable),

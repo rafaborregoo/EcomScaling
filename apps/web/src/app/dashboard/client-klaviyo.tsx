@@ -1,4 +1,5 @@
 "use client";
+import { A02Reading } from "@/components/a02-reading";
 
 import { buttonVariants } from "@/components/ui/button";
 import Link from "next/link";
@@ -15,7 +16,6 @@ import { salesChangePct } from "./store-pulse";
 import { fmtEur, fmtNum } from "./client-pulse-model";
 import {
   cx,
-  a02FindingText,
   Delta,
   Empty,
   findingFor,
@@ -24,7 +24,6 @@ import {
   MONTHS,
   prioClass,
   SectionHead,
-  DiagnosticScopeNote,
   dayLabel,
   type Diagnostic,
 } from "./client-pulse";
@@ -211,11 +210,10 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
   // ---- derivados ----
   const { totals, previous } = data;
   const emailDiag = emailAi.data;
-  const a02KlaviyoFinding = findingFor(monitor.data, /email|klaviyo|crm|flujo|newsletter/i);
-  const klaviyoFindingFor = (pattern: RegExp) => findingFor(emailDiag, pattern) ?? findingFor(monitor.data, pattern);
-  const klaviyoFindingText = (pattern: RegExp) => klaviyoFindingFor(pattern)?.title ?? a02FindingText(monitor.data, pattern);
+  const klaviyoFindingFor = (pattern: RegExp) => findingFor(emailDiag, pattern);
+  const klaviyoFindingText = (pattern: RegExp) => klaviyoFindingFor(pattern)?.title ?? null;
   const aiHeadline =
-    emailDiag?.output.headline ?? emailDiag?.output.findings?.[0]?.title ?? a02KlaviyoFinding?.title ?? null;
+    emailDiag?.output.headline ?? emailDiag?.output.findings?.[0]?.title ?? null;
   const channelRevenue = totals.flow_revenue + totals.campaign_revenue;
   const flowShare = channelRevenue > 0 ? totals.flow_revenue / channelRevenue : null;
   const storeSales = store.data?.sales.net_sales ?? null;
@@ -262,7 +260,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
             <h1 id="kl-headline" className={`${s.headline} client-sr-title`}>
               Klaviyo: email y retención
             </h1>
-            <p className={s.headlineDetail}>{aiHeadline ? <span className={s.ia}>{(emailDiag?.output.headline ?? emailDiag?.output.findings[0]?.title) ? "A12" : "A02"}</span> : null}{headline}</p>
+            <p className={s.headlineDetail}>{aiHeadline ? <span className={s.ia}>A12</span> : null}{headline}</p>
             <p className={s.headlineDetail}>
               {fmtNum(totals.conversions)} compras atribuidas a {fmtNum(totals.recipients)} envíos. Es lo que Klaviyo se atribuye con su ventana de conversión, no ventas exclusivas del email.
             </p>
@@ -348,17 +346,7 @@ export function ClientKlaviyo({ organizationId, organizationName, connectionId, 
         ) : null}
       </section>
 
-      <section className={s.sec} aria-label="Lectura ejecutiva de Klaviyo">
-        <div className={s.panel}>
-          <h2 className={s.readingTitle}><span className={s.ia}>A02</span> {monitor.data?.result_scope === "overview" ? "Lectura general del negocio" : "Lectura de Klaviyo"}</h2>
-          <p className={s.headlineDetail}>
-            {monitor.data?.result_scope === "overview"
-              ? a02KlaviyoFinding?.title ?? "La lectura general de A02 no tiene datos suficientes para señalar un hallazgo específico de Klaviyo."
-              : monitor.data?.output.headline ?? "El análisis específico de Klaviyo aparecerá aquí cuando termine su primera ejecución."}
-          </p>
-          <DiagnosticScopeNote diagnostic={monitor.data} />
-        </div>
-      </section>
+      <A02Reading spot="klaviyo" diagnostic={monitor.data} loading={monitor.isLoading} error={monitor.error} errorCode={monitor.errorCode} organizationId={organizationId} connectionId={connectionId} viewDays={period} onRetry={monitor.reload} />
 
       <AiDiagnosticSection
         organizationId={organizationId}

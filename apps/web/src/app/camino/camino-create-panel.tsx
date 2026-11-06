@@ -9,14 +9,13 @@ import { readApiError } from "@/lib/api-error";
 import { A01_CAMINO_BRIEF_KEY, parseA01BriefHandoff } from "@/lib/a01-call-handoff";
 import { EvidenceChips } from "@/components/ai-proposed-tasks";
 import { FileTextIcon, XIcon } from "lucide-react";
-import { AiEvidence, Attachment, AttachmentAction, AttachmentActions, AttachmentContent, AttachmentDescription, AttachmentMedia, AttachmentTitle, Button, ButtonLink, ErrorBlock, Input, LoadingBlock, SearchableSelect, Select, Tabs, Textarea, toast } from "@/components/ui";
+import { AiEvidence, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Attachment, AttachmentAction, AttachmentActions, AttachmentContent, AttachmentDescription, AttachmentMedia, AttachmentTitle, Button, ButtonLink, ErrorBlock, Input, LoadingBlock, SearchableSelect, Select, Tabs, Textarea, toast } from "@/components/ui";
 import { CaminoDraftMap, CaminoDrawing, type DraftPhase } from "./camino-map";
 import { CaminoIntakeWizard, type CaminoIntake } from "./camino-intake-wizard";
 import { calendarHorizonDays, calendarMonthsTouched } from "./camino-calendar";
 import { MonthlyRoute } from "./monthly-route";
 import { summarizeCaminoOperations } from "./camino-operating-summary";
 import { countByTrack } from "./task-tracks";
-import { comparePlans, shapeOfPlan, shapeOfProposal, type ComparablePhase } from "./plan-compare";
 import s from "./camino-create-panel.module.css";
 
 /**
@@ -61,12 +60,12 @@ function formatAmount(value: number, unit: string, currency: string) {
   return new Intl.NumberFormat("es-ES").format(value);
 }
 
-function isoInDays(days: number) {
-  return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+function isoInDays(days: number, from = Date.now()) {
+  return new Date(from + days * 86_400_000).toISOString().slice(0, 10);
 }
 
-function displayOffsetDate(days: number) {
-  const date = new Date(`${isoInDays(days)}T00:00:00`);
+function displayOffsetDate(days: number, from = Date.now()) {
+  const date = new Date(`${isoInDays(days, from)}T00:00:00`);
   return new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "short" }).format(date);
 }
 
@@ -85,7 +84,6 @@ export function CaminoCreatePanel({
   defaultCurrency,
   catalog,
   onCreated,
-  replacePlan,
 }: {
   variant: "client" | "consultant";
   title: string;
@@ -94,10 +92,8 @@ export function CaminoCreatePanel({
   defaultCurrency: string;
   catalog: CatalogEntry[];
   onCreated: () => void;
-  /** Replanificar: la IA propone y, al aceptar, la propuesta sustituye a este camino. */
-  replacePlan?: { id: string; name: string; phases: ComparablePhase[] };
 }) {
-  const [mode, setMode] = useState<CaminoCreateMode>(replacePlan || variant === "client" ? "ia" : "manual");
+  const [mode, setMode] = useState<CaminoCreateMode>(variant === "client" ? "ia" : "manual");
   const [currency, setCurrency] = useState(
     (CAMINO_CURRENCIES as readonly string[]).includes(defaultCurrency) ? defaultCurrency : "EUR",
   );
@@ -114,7 +110,6 @@ export function CaminoCreatePanel({
           <span>Moneda del camino</span>
           <Select value={currency} onChange={setCurrency} aria-label="Moneda del camino" options={CAMINO_CURRENCIES.map((code) => ({ value: code, label: code }))} />
         </label>
-        {replacePlan ? null : (
         <ToggleGroup aria-label="Cómo crear el camino" className="col-span-full" value={mode} onValueChange={setMode}>
           {MODES.map((item) => (
             <ToggleGroupItem key={item.key} value={item.key}>
@@ -122,11 +117,10 @@ export function CaminoCreatePanel({
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
-        )}
       </div>
       <div className={s.body}>
         {mode === "ia" ? (
-          <IaCreator organizationId={organizationId} connectionId={connectionId} currency={currency} onCreated={onCreated} variant={variant} replacePlan={replacePlan} />
+          <IaCreator organizationId={organizationId} connectionId={connectionId} currency={currency} onCreated={onCreated} variant={variant} />
         ) : mode === "import" ? (
           <ImportCreator organizationId={organizationId} connectionId={connectionId} currency={currency} onCreated={onCreated} variant={variant} />
         ) : (
@@ -179,12 +173,14 @@ type ContextSource = { key: string; label: string; status: "ok" | "empty" | "una
 type Proposal = {
   output_id: string;
   status: string;
+  generated_at?: string;
+  expired?: boolean;
   horizon_months: number | null;
   content: ProposalContent | null;
   context_sources?: ContextSource[] | null;
 };
 
-type RunProgress = {
+export type RunProgress = {
   state: "idle" | "running" | "failed" | "done";
   started_at: number | null;
   steps: Array<{ step_type: string; summary?: string | null }>;
@@ -195,16 +191,19 @@ type RunProgress = {
   provider?: string | null;
 };
 
-function caminoFailureMessage(failure: RunProgress["failure"]): string {
+export function caminoFailureMessage(failure: RunProgress["failure"]): string {
   const detail = failure?.message ?? failure?.error ?? "No se pudo generar el Camino. Vuelve a intentarlo.";
   if (failure?.error === "agent_output_schema_mismatch" || detail.includes("agent_output_schema_mismatch")) {
     return "La IA devolvió un Camino incompleto. Vuelve a trazarlo.";
+  }
+  if (detail.includes("provider_out_of_credit")) {
+    return "La IA no está disponible ahora mismo: el proveedor no tiene crédito. Tu Camino no ha cambiado.";
   }
   return detail;
 }
 
 /** Qué está haciendo la IA ahora, según los pasos reales que ha registrado el servidor. */
-function progressStage(progress: RunProgress | null): string | undefined {
+export function progressStage(progress: RunProgress | null): string | undefined {
   if (!progress || progress.state !== "running") return undefined;
   const types = progress.steps.map((step) => step.step_type);
   if (types.includes("event_coverage") && !types.includes("task_detailing")) return "Añadiendo la preparación de las fechas clave que faltaban";
@@ -257,48 +256,12 @@ function ContextUsed({ sources }: { sources: ContextSource[] }) {
 
 const CONFIDENCE = { low: "Confianza baja", medium: "Confianza media", high: "Confianza alta" };
 
-/** Qué cambia respecto al camino vigente: hitos que se mantienen, nuevos y retirados. */
-function PlanComparisonCard({ currentName, comparison }: { currentName: string; comparison: ReturnType<typeof comparePlans> }) {
-  return (
-    <section className={s.contextBlock} aria-labelledby="camino-compare">
-      <div className={s.contextHeading}>
-        <h4 id="camino-compare">Frente a «{currentName}»</h4>
-      </div>
-      <p className={s.hintLine}>
-        Ahora: {comparison.current.phases} fases, {comparison.current.milestones.length} hitos, {comparison.current.tasks} tareas · Propuesta:{" "}
-        {comparison.proposed.phases} fases, {comparison.proposed.milestones.length} hitos, {comparison.proposed.tasks} tareas
-      </p>
-      <ul className={s.sources}>
-        {comparison.kept.map((name) => (
-          <li key={`k-${name}`} className={s.sourceMuted + " " + s.source}>
-            = {name}
-          </li>
-        ))}
-        {comparison.added.map((name) => (
-          <li key={`a-${name}`} className={s.source}>
-            + {name}
-          </li>
-        ))}
-        {comparison.removed.map((name) => (
-          <li key={`r-${name}`} className={`${s.source} ${s.sourceMissing}`}>
-            − {name}
-          </li>
-        ))}
-      </ul>
-      <p className={s.hintLine}>
-        Al reemplazar, «{currentName}» se archiva (no se borra nada) y sus tareas abiertas siguen en Tareas.
-      </p>
-    </section>
-  );
-}
-
-function IaCreator({ organizationId, connectionId, currency, onCreated, variant, replacePlan }: {
+function IaCreator({ organizationId, connectionId, currency, onCreated, variant }: {
   variant: "client" | "consultant";
   organizationId: string;
   connectionId?: string | null;
   currency: string;
   onCreated: () => void;
-  replacePlan?: { id: string; name: string; phases: ComparablePhase[] };
 }) {
   const searchParams = useSearchParams();
   const fromCall = searchParams.get("fromCall") === "1";
@@ -321,6 +284,7 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
   const [runSince, setRunSince] = useState<number | null>(null);
   const [tab, setTab] = useState("ruta");
   const [progress, setProgress] = useState<RunProgress | null>(null);
+  const [openedAt] = useState(() => Date.now());
   const handoffDone = useRef(false);
   const horizonEdited = useRef(false);
 
@@ -385,6 +349,8 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
     void load();
   }, [load]);
 
+  const fullBrief = brief.trim();
+
   async function generate(intake: CaminoIntake) {
     setIsGenerating(true);
     setError(null);
@@ -399,7 +365,7 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
       const response = await apiFetch(`/v1/organizations/${organizationId}/ai/camino-proposal/run${query ? `${query}&async=1` : "?async=1"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ horizon_months: horizon, ...(brief.trim() ? { brief: brief.trim().slice(0, 2000) } : {}) }),
+        body: JSON.stringify({ horizon_months: horizon, ...(fullBrief ? { brief: fullBrief } : {}) }),
       });
       if (!response.ok) throw new Error(await readApiError(response));
       const started = (await response.json()) as { started_at: number };
@@ -465,7 +431,6 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
           output_id: proposal.output_id,
           horizon_months: horizon,
           currency_code: currency,
-          ...(replacePlan ? { replace_plan_id: replacePlan.id } : {}),
           ...(proposal.content?.goal ? { goal_target: goalTarget.trim() ? Number(goalTarget) : null } : {}),
         }),
       });
@@ -473,9 +438,7 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
         setError(await readApiError(response));
         return;
       }
-      toast.success(
-        replacePlan ? "Camino reemplazado. El anterior quedó archivado; revisa el nuevo y actívalo." : "Camino creado como borrador. Revísalo y actívalo.",
-      );
+      toast.success("Camino creado como borrador. Revísalo y actívalo.");
       onCreated();
     } catch {
       setError("No se pudo crear el camino. Reintenta.");
@@ -516,7 +479,9 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
   // Mismo criterio que el backend al aceptar con otro plazo: las fechas son de
   // calendario y no se reescalan; un plazo mas corto deja fuera los hitos que
   // ya no caben.
-  const adjustedHorizonDays = calendarHorizonDays(horizon);
+  // Las fechas de una propuesta cuentan desde que se generó, no desde hoy.
+  const anchor = proposal?.generated_at ? Date.parse(proposal.generated_at) : openedAt;
+  const adjustedHorizonDays = calendarHorizonDays(horizon, new Date(anchor));
   const scaled = (days: number) => Math.min(adjustedHorizonDays, days);
   const phases = (content?.phases ?? [])
     .map((phase) => ({ ...phase, milestones: phase.milestones.filter((milestone) => milestone.target_offset_days <= adjustedHorizonDays) }))
@@ -526,13 +491,13 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
     name: phase.name,
     milestones: phase.milestones.map((milestone) => ({
       name: milestone.name,
-      date: isoInDays(scaled(milestone.target_offset_days)),
+      date: isoInDays(scaled(milestone.target_offset_days), anchor),
       detail: milestone.description,
       criterion: milestone.success_metric,
       tasks: milestone.tasks?.map((task) => ({
         title: task.title,
         description: task.description,
-        date: isoInDays(scaled(task.target_offset_days)),
+        date: isoInDays(scaled(task.target_offset_days), anchor),
         priority: TASK_PRIORITY_LABELS[task.priority],
       })),
     })),
@@ -546,7 +511,7 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
   );
   const trackTotals = countByTrack(phases.flatMap((phase) => phase.milestones.flatMap((milestone) => milestone.tasks ?? [])));
   const goalNumber = goalTarget.trim() ? Number(goalTarget) : null;
-  const checkpointMonths = calendarMonthsTouched(new Date(), adjustedHorizonDays);
+  const checkpointMonths = calendarMonthsTouched(new Date(anchor), adjustedHorizonDays);
   const previewMonthlyTargets = goal?.monthly_targets
     ? Array.from({ length: checkpointMonths }, (_, index) => {
         const source = goal.monthly_targets?.[index];
@@ -623,7 +588,7 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
             <span>1 mes</span>
             <span>12 meses</span>
           </span>
-          <span className={s.durationDates}>{displayFullDate(isoInDays(0))} — {displayFullDate(isoInDays(adjustedHorizonDays))}</span>
+          <span className={s.durationDates}>{displayFullDate(isoInDays(0, anchor))} — {displayFullDate(isoInDays(adjustedHorizonDays, anchor))}</span>
         </div>
         <div className={s.control}>
           <label className={s.controlLabel} htmlFor="camino-brief">Indicaciones para la IA (opcional)</label>
@@ -752,13 +717,6 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
               {hiddenMilestones} {hiddenMilestones === 1 ? "hito queda fuera" : "hitos quedan fuera"} del plazo elegido. Amplía la duración para incluirlos.
             </p>
           ) : null}
-          {replacePlan ? (
-            <PlanComparisonCard
-              currentName={replacePlan.name}
-              comparison={comparePlans(shapeOfPlan(replacePlan.phases), shapeOfProposal(phases))}
-            />
-          ) : null}
-
           {trackTotals.puesta_a_punto + trackTotals.temporada + trackTotals.crecimiento > 0 && trackTotals.crecimiento === 0 ? (
             <p className={s.hintLine}>
               Falta el ciclo de crecimiento semanal o mensual.
@@ -777,8 +735,8 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
               baseline={goal.baseline}
               baselineLabel="ritmo de los últimos 3 meses"
               format={(value) => formatAmount(value, goal.unit, currency)}
-              startDate={isoInDays(0)}
-              endDate={isoInDays(adjustedHorizonDays)}
+              startDate={isoInDays(0, anchor)}
+              endDate={isoInDays(adjustedHorizonDays, anchor)}
               milestones={draft.flatMap((phase) => phase.milestones.map((milestone) => ({ name: milestone.name, date: milestone.date ?? null })))}
               goalTarget={goalNumber}
             />
@@ -803,7 +761,7 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
                     {phase.milestones.map((milestone, milestoneIndex) => (
                       <section className={s.milestonePreview} key={`${milestone.name}-${milestoneIndex}`}>
                         <b>{milestone.name}</b>
-                        <span className={s.milestonePreviewDate}>Hito · {displayOffsetDate(scaled(milestone.target_offset_days))}</span>
+                        <span className={s.milestonePreviewDate}>Hito · {displayOffsetDate(scaled(milestone.target_offset_days), anchor)}</span>
                         {milestone.success_metric ? <p>{milestone.success_metric}</p> : null}
                       </section>
                     ))}
@@ -862,11 +820,13 @@ function IaCreator({ organizationId, connectionId, currency, onCreated, variant,
 
           {proposal?.status === "published" ? (
             <p className={s.hintLine}>Esta propuesta ya se convirtió en un camino. Traza otra si quieres empezar de nuevo.</p>
+          ) : proposal?.expired ? (
+            <p className={s.hintLine}>Esta propuesta ha caducado: sus fechas y metas ya no valen. Traza otra con los datos de hoy.</p>
           ) : (
             <>
               <div className={s.actions}>
                 <Button type="button" disabled={isCreating || isRejecting} onClick={() => void accept()}>
-                  {isCreating ? "Creando..." : replacePlan ? "Reemplazar el camino actual" : "Crear este camino"}
+                  {isCreating ? "Creando..." : "Crear este camino"}
                 </Button>
                 <Button type="button" variant="secondary" disabled={isCreating || isRejecting} onClick={() => setRejecting((open) => !open)}>
                   Rechazar este camino

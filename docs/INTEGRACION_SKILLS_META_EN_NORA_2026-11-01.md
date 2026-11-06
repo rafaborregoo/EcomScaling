@@ -1,6 +1,6 @@
 # Encaje de las skills Meta en el código de E-NORA
 
-Fecha: 01/11/2026. Estado: integración aplicada en código y principios activados en TEST. Comparación de los seis modelos pendiente de la auditoría A11. No se ha desplegado la aplicación en producción.
+Fecha: 01/11/2026, actualizado 02/11/2026. Estado: integración aplicada en código y principios activados en TEST. Comparación A11 ejecutada con seis modelos y productos de la tienda; detalle en [Resultados del 02/11](./A11_COMPARACION_SEIS_MODELOS_DATOS_TIENDA_2026-11-02.md). No se ha desplegado la aplicación en producción.
 
 ## Decisión de diseño
 
@@ -110,4 +110,4 @@ Arranque local y HTTP comprobados para API, Marketing y biblioteca interna. No h
 
 Para reactivar/verificar en TEST: `npx dotenv -o -e .env.local -- tsx scripts/activate-marketing-design-principles.mts`. El script exige la base TEST, utiliza un administrador real y las funciones de curación/auditoría existentes. No aplica migraciones: esta integración utiliza tablas y RPC existentes.
 
-La integración de métodos queda aplicada. La próxima auditoría de A11 deberá comparar Haiku, Sonnet, Opus, Luna, Sol y Terra sobre el mismo contexto y recursos visuales, renderizar las piezas y escoger modelo/fallback con calidad y coste medidos. No se ha ejecutado esa comparación ni proclamado ganador con estos cambios.
+La integración de métodos queda aplicada. Actualización 02/11/2026: se ejecutaron las 36 combinaciones de Haiku, Sonnet, Opus, Luna, Sol y Terra, con 35 respuestas válidas y una rechazada. Comparaciones en la cuenta del propietario y del consultor, Marketing → Laboratorio de marketing. Recomendación editorial provisional Sol; asignación sin cambiar e inspección visual pendiente por bloqueo de Computer Use. Ver [Auditoría y resultados](./A11_COMPARACION_SEIS_MODELOS_DATOS_TIENDA_2026-11-02.md).

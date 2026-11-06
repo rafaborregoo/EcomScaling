@@ -237,12 +237,8 @@
 }
 .objectivesPanel {
   display: grid;
-  gap: 0;
+  gap: 16px;
   min-width: 0;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--surface);
   color: var(--ink);
   font-family: var(--font-plex-sans), system-ui, sans-serif;
 }
@@ -254,7 +250,6 @@
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 18px 20px;
 }
 .objectivesHeader h2 {
   margin: 0;
@@ -268,85 +263,6 @@
   color: var(--ink-2);
   font-size: 13px;
   line-height: 1.45;
-}
-.objectiveRows {
-  margin: 0 20px;
-  border-top: 1px solid var(--line-2);
-}
-.objectiveRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(260px, 0.9fr);
-  gap: 22px;
-  align-items: center;
-  padding: 16px 0;
-}
-.objectiveRow + .objectiveRow {
-  border-top: 1px solid var(--line-2);
-}
-.objectiveIdentity {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  min-width: 0;
-}
-.objectiveName {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-.objectivePeriod {
-  margin: 4px 0 0;
-  color: var(--ink-3);
-  font-size: 11.5px;
-}
-.objectiveMeasure {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-.objectiveValueLine {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 8px;
-  min-width: 0;
-}
-.objectiveValue {
-  margin: 0;
-  color: var(--ink);
-  font-size: 21px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-}
-.objectiveTarget {
-  margin: 0;
-  color: var(--ink-3);
-  font-size: 12.5px;
-}
-.objectiveProgress {
-  width: 100%;
-}
-.objectiveNoData {
-  margin: 0;
-  color: var(--ink-3);
-  font-size: 12px;
-  line-height: 1.45;
-}
-.objectiveActualForm {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 8px;
-}
-.objectiveRemove {
-  justify-self: start;
-  margin-top: -5px;
-  padding-inline: 0;
-  color: var(--ink-3);
-  font-size: 11.5px;
 }
 .objectiveNotice,
 .objectiveEmpty {
@@ -905,10 +821,6 @@
   .level {
     grid-template-columns: 1fr;
   }
-  .objectiveRow {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
-  }
 }
 @media (max-width: 560px) {
   .hud > div:first-child {
@@ -928,12 +840,6 @@
   }
   .objectivesHeader > button {
     width: 100%;
-  }
-  .objectiveRows {
-    margin-inline: 14px;
-  }
-  .objectiveIdentity {
-    align-items: flex-start;
   }
   .objectiveNotice,
   .objectiveEmpty {

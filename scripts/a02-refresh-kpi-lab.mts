@@ -12,8 +12,9 @@ import { createClient } from "@supabase/supabase-js";
 import { loadApiEnv } from "@e-nora/config";
 import { runMonitorAgent, getMonitorDiagnostic } from "../apps/api/src/ai-runtime.js";
 import type { AuthContext } from "../apps/api/src/auth-context.js";
+import { A02_MODEL_DECISION } from "@e-nora/contracts";
 
-const model = "gpt-6.1-terra";
+const model = A02_MODEL_DECISION.model;
 const report = JSON.parse(await readFile(resolve(".e-nora-test-lab/ai-models/report.json"), "utf8"));
 const env = loadApiEnv({ ...process.env, OPENAI_API_KEY: "laboratory-cli-no-api", ANTHROPIC_API_KEY: undefined, AI_JUDGE_MODE: "off" });
 assert.ok(env.SUPABASE_URL.includes("kopcblejsxpkxoykldyh.supabase.co"), "TEST only");

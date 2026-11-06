@@ -266,10 +266,8 @@ async function syncFlowDailySeries(input: KlaviyoMarketingSyncInput) {
   const scope = "flow_daily_series";
   if (await ranToday(input.client, input.organizationId, scope)) return;
   const startedAt = new Date().toISOString();
-  if (!input.conversionMetricId) {
-    await input.recordBlockRun(scope, startedAt, { read: 0, error: "conversion_metric_missing" });
-    return;
-  }
+  // Sin métrica elegida no hay serie que traer; el aviso lo da el sync.
+  if (!input.conversionMetricId) return;
   try {
     const windows = input.mode === "initial" ? 2 : 1;
     const totals = new Map<string, { revenue: number; recipients: number }>();

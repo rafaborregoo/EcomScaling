@@ -3,6 +3,8 @@
 const AGENT_TAG_BY_PATH: Record<string, string> = {
   "/ai/monitor": "A02",
   "/ai/task-planner": "A04",
+  "/ai/plan/week": "A17",
+  "/ai/plan/month": "A18",
   "/ai/stock-planner": "A06",
   "/ai/knowledge-manager": "A08",
   "/ai/email-analyst": "A12",

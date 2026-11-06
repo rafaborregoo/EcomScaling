@@ -42,6 +42,14 @@
   --nora-dash-red-ink: #a02b3d;
   --nora-dash-pink: #b74683;
   --nora-dash-pink-ink: #9d376f;
+  /* Cristal: láminas de blanco translúcido sobre un lienzo blanco nube, con un
+     punto de morado para no caer en gris. Es el aspecto de toda la app. */
+  --nora-mist-white: #fdfcff;
+  --nora-cloud: #f4f3fb;
+  --nora-purple-light: #9a90ea;
+  --nora-glass: rgb(255 255 255 / 0.44);
+  --nora-glass-strong: rgb(255 255 255 / 0.74);
+  --nora-glass-line: rgb(98 86 201 / 0.12);
   /* Paleta de marca: blanco de la app, gris del logo y morado del boton.
      Los tonos intermedios salen de mezclarlos, no de colores nuevos. */
   --nora-white: var(--background);
@@ -56,13 +64,20 @@
   --scrollbar-thumb: color-mix(in srgb, var(--nora-gray) 20%, var(--nora-white));
   --scrollbar-thumb-hover: color-mix(in srgb, var(--nora-gray) 38%, var(--nora-white));
 
-  /* Fondo de pagina de toda la app: base blanca que baja hacia un gris muy
-     claro, con un halo morado arriba a la derecha y uno gris abajo a la
-     izquierda. Las tarjetas siguen en blanco puro y asi se separan. */
+  /* Fondo de pagina de toda la app: el lienzo blanco nube. Las tarjetas son
+     laminas de cristal encima. */
   --app-backdrop:
-    radial-gradient(60rem 40rem at 100% 0%, var(--nora-purple-100), transparent 70%) fixed,
-    radial-gradient(50rem 36rem at 0% 100%, var(--nora-gray-100), transparent 70%) fixed,
-    linear-gradient(165deg, var(--nora-white) 0%, var(--nora-mist) 55%, var(--nora-gray-50) 100%) fixed;
+    radial-gradient(58rem 30rem at 8% -4%, rgb(255 255 255 / 0.95), transparent 68%) fixed,
+    radial-gradient(48rem 26rem at 96% 14%, rgb(255 255 255 / 0.9), transparent 66%) fixed,
+    radial-gradient(60rem 30rem at 34% 56%, rgb(255 255 255 / 0.9), transparent 70%) fixed,
+    radial-gradient(52rem 30rem at 92% 82%, rgb(154 144 234 / 0.1), transparent 70%) fixed,
+    linear-gradient(165deg, var(--nora-mist-white), var(--nora-cloud) 45%, var(--nora-mist-white) 72%, var(--nora-cloud)) fixed;
+  /* La lamina de cristal: las mismas piezas en todas las pantallas. */
+  --glass-surface: linear-gradient(180deg, var(--nora-glass-strong), var(--nora-glass));
+  --glass-edge:
+    inset 0 1px 0 rgb(255 255 255 / 0.9),
+    0 0 0 1px var(--nora-glass-line),
+    0 12px 32px -24px rgb(61 59 58 / 0.1);
 
   /* Acento de producto: grafito del logo sobre una interfaz monocroma. */
   --accent: #3d3b3a;
@@ -85,7 +100,8 @@
 
   /* Radio recto ya validado (auditoria de accesibilidad 2026-07-23); HeroUI
      usa por defecto radios grandes (rounded-3xl) que no se adoptan aqui. */
-  --radius: 0.375rem;
+  --radius: 18px;
+  --glass-radius: var(--radius);
 
   /* Un solo radio en TODA la app (= listas / cards). HeroUI define su escala
      como calc(--radius * N) dentro de @theme; aqui se colapsa toda a --radius,
@@ -988,12 +1004,6 @@ body[data-role] :is(.ui-dialog, .ui-drawer) .text-accent {
 .trabajo-theme .portal-page {
   min-width: 0;
 }
-#portal-content.trabajo-theme [data-slot="card"] {
-  background: #ffffff;
-  border-color: var(--tw-line);
-  border-radius: 16px;
-  box-shadow: none;
-}
 .trabajo-theme ::selection {
   background: var(--tw-accent-soft);
   color: var(--tw-ink);
@@ -1392,9 +1402,16 @@ body:has(#portal-content.trabajo-theme) {
    Se conserva el contenedor para sus anclas, títulos y distribución; las
    superficies de diálogo mantienen su contención propia. */
 :is(body, #portal-content[data-role]) .ui-card:not(:where(dialog, [role="dialog"], [role="alertdialog"]) .ui-card) {
-  padding: 0;
+  padding: 20px;
   gap: 1.25rem;
   border: 0;
+  border-radius: var(--glass-radius);
+  background: var(--glass-surface);
+  box-shadow: var(--glass-edge);
+}
+/* Una lámina dentro de otra no suma nada: la de dentro solo agrupa. */
+:is(body, #portal-content[data-role]) .ui-card .ui-card:not(:where(dialog, [role="dialog"], [role="alertdialog"]) .ui-card) {
+  padding: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
@@ -3362,7 +3379,7 @@ html:has(.ui-drawer[open][data-modal="true"]) { overflow: hidden; }
   .ui-table__header .ui-table__row { border-bottom: 1px solid var(--separator); }
   .ui-table__row { border-bottom: 1px solid var(--separator); transition: background-color 120ms ease; }
   .ui-table__body .ui-table__row:last-child { border-bottom: 0; }
-  .ui-table__body .ui-table__row:hover { background: color-mix(in srgb, var(--default) 60%, transparent); }
+  .ui-table__body .ui-table__row:hover { background: var(--nora-purple-50); }
   .ui-table__row[data-state="selected"],
   .ui-table__body .ui-table__row[data-state="selected"]:hover { background: var(--nora-dash-accent-soft); }
   .ui-table__head {
@@ -3483,4 +3500,14 @@ html:has(.ui-drawer[open][data-modal="true"]) { overflow: hidden; }
   .ui-separator { flex-shrink: 0; background-color: var(--separator); }
   .ui-separator[data-orientation="horizontal"] { width: 100%; height: 1px; }
   .ui-separator[data-orientation="vertical"] { width: 1px; align-self: stretch; }
+}
+
+/* Sin capa, a propósito: una lista cerrada no aparece aunque el padre pinte a sus hijos (`.fila > div { display: grid }`). */
+[popover]:not(:popover-open) {
+  display: none;
+}
+
+/* Sin capa: la X de HeroUI trae position: relative y caía al final del diálogo. */
+.ui-dialog__close {
+  position: absolute;
 }

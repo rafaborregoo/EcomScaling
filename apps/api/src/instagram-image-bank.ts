@@ -9,12 +9,15 @@
 // checksum). Escrituras por service role + chequeo manual de rol; la RLS de la
 // tabla solo permite select a `authenticated`.
 import crypto from "node:crypto";
+import { cropOverlayImage, renderOverlayImage, overlayRatioSchema, overlaySlidesSchema, overlayFingerprint, overlayEditorBlocks, OVERLAY_DIMS, OVERLAY_RENDER_VERSION } from "./overlay-composition.js";
+import { getAgentModelDecision } from "@e-nora/contracts";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import {
   chunkText,
   instagramImageAnalysisToMarkdown,
   createRagEmbeddingProvider,
+  instagramOverlayDraftSchema,
 } from "@e-nora/ai";
 import type { LoadedApiEnv } from "@e-nora/config";
 import { loadDisabledAgents } from "./ai-agent-groups.js";
@@ -85,7 +88,7 @@ function requireBankAccess(context: AuthContext, organizationId: string) {
 }
 
 const IMAGE_COLUMNS =
-  "id, public_url, storage_bucket, storage_path, original_filename, content_type, byte_size, pixel_width, pixel_height, representation_kind, store_id, content_revision, status, analysis, analysis_fingerprint, markdown, knowledge_document_id, index_status, error_reason, attempts, analyzed_at, created_at, updated_at";
+  "id, public_url, storage_bucket, storage_path, original_filename, content_type, byte_size, pixel_width, pixel_height, representation_kind, store_id, content_revision, checksum, status, analysis, analysis_fingerprint, markdown, knowledge_document_id, index_status, error_reason, attempts, analyzed_at, created_at, updated_at";
 
 async function resolveBankImageUrls(
   supabase: ReturnType<typeof createServiceClient>,
@@ -188,11 +191,11 @@ async function getActiveA15Fingerprint(supabase: ReturnType<typeof createService
     ok: true as const,
     fingerprint: buildVisualAnalysisFingerprint({
       agentVersion: data.version as string,
-      model: data.model as string,
+      model: getAgentModelDecision("a15_analista_imagenes")?.model ?? data.model as string,
       promptCode: data.prompt_code as string,
       promptVersion: data.prompt_version as string,
       promptSha256: crypto.createHash("sha256").update(prompt.content as string).digest("hex"),
-      schemaVersion: "a15-visual-schema-v3",
+      schemaVersion: "a15-visual-schema-v4",
       ...(typeof image?.checksum === "string" ? { contentChecksum: image.checksum } : {}),
       ...(typeof image?.representation_kind === "string" ? { representationKind: image.representation_kind } : {}),
     }),
@@ -1791,6 +1794,93 @@ async function reindexImageMarkdown(
 const OVERLAY_COLUMNS =
   "id, image_id, name, format, ratio, slides, creative_brief, channel, created_at, updated_at";
 
+async function authorizedOverlay(env: ApiEnv, context: AuthContext, organizationId: string, overlayId: string) {
+  const access = requireBankAccess(context, organizationId);
+  if (!access.ok) return access;
+  const supabase = createServiceClient(env);
+  const { data: overlay, error } = await supabase.from("instagram_image_overlays")
+    .select(`${OVERLAY_COLUMNS}, organization_id`).eq("id", overlayId).eq("organization_id", organizationId).maybeSingle();
+  if (error || !overlay) return { ok: false as const, statusCode: 404, error: "pieza_no_encontrada" };
+  const slides = overlaySlidesSchema.safeParse(overlay.slides);
+  if (!slides.success) return { ok: false as const, statusCode: 422, error: "overlay_layout_invalid" };
+  const ids = slides.data.flatMap(slide => slide.image_id ? [slide.image_id] : []);
+  const images = ids.length ? await supabase.from("instagram_image_bank").select(IMAGE_COLUMNS).eq("organization_id", organizationId).in("id", ids) : { data: [], error: null };
+  if (images.error || ids.some(id => !images.data?.some(image => image.id === id))) return { ok: false as const, statusCode: 404, error: "imagen_no_encontrada" };
+  const scope = storeAccess(context, organizationId, null);
+  if (!scope.ok) return scope;
+  const sourceStores = ids.length ? await supabase.from("marketing_visual_asset_sources").select("image_id,store_id").eq("organization_id", organizationId).in("image_id", ids) : { data: [], error: null };
+  if (sourceStores.error) return { ok: false as const, statusCode: 503, error: "visual_asset_store_scope_load_failed" };
+  const stores = new Set<string>();
+  for (const image of images.data ?? []) {
+    const imageStores = image.store_id ? [image.store_id as string] : [...new Set((sourceStores.data ?? []).filter(source => source.image_id === image.id && source.store_id).map(source => source.store_id as string))];
+    for (const storeId of imageStores) { const permitted = storeAccess(context, organizationId, storeId); if (!permitted.ok) return permitted; }
+    if (scope.allowedStoreIds && (!imageStores.length || imageStores.some(store => !scope.allowedStoreIds!.includes(store)))) return { ok: false as const, statusCode: 403, error: "visual_asset_store_access_denied" };
+    for (const store of imageStores) stores.add(store);
+  }
+  if (stores.size > 1) return { ok: false as const, statusCode: 409, error: "overlay_mixed_stores" };
+  const storeId = [...stores][0] ?? null;
+  const store = storeId ? await supabase.from("shopify_stores").select("connection_id").eq("organization_id", organizationId).eq("id", storeId).maybeSingle() : { data: null };
+  return { ok: true as const, supabase, overlay, slides: slides.data, images: images.data ?? [], storeId, connectionId: store.data?.connection_id as string | null };
+}
+
+async function overlaySourceBytes(supabase: SupabaseClient, organizationId: string, image: Record<string, unknown>) {
+  const bucket = image.storage_bucket ?? BUCKET;
+  const path = image.storage_path;
+  if (![BUCKET, PRIVATE_SOURCE_BUCKET].includes(String(bucket)) || typeof path !== "string" || !isOwnedVisualStoragePath(organizationId, path)) throw new Error("visual_asset_storage_scope_invalid");
+  const { data, error } = await supabase.storage.from(String(bucket)).download(path);
+  if (error || !data || data.size > META_IMAGE_MAX_BYTES) throw new Error("visual_asset_download_failed");
+  return Buffer.from(await data.arrayBuffer());
+}
+
+export async function renderInstagramOverlay(env: ApiEnv, context: AuthContext, organizationId: string, overlayId: string, slideIndex: number) {
+  const loaded = await authorizedOverlay(env, context, organizationId, overlayId);
+  if (!loaded.ok) return loaded;
+  const slide = loaded.slides[slideIndex];
+  const image = loaded.images.find(image => image.id === slide?.image_id);
+  if (!Number.isInteger(slideIndex) || !slide || !image) return { ok: false as const, statusCode: 404, error: "slide_sin_imagen" };
+  const ratio = overlayRatioSchema.parse(loaded.overlay.ratio);
+  try {
+    const source = await overlaySourceBytes(loaded.supabase, organizationId, image);
+    const png = await renderOverlayImage(source, ratio, slide.blocks);
+    return { ok: true as const, data: { png, hash: crypto.createHash("sha256").update(png).digest("hex"), ratio, image_id: image.id } };
+  } catch (error) { return { ok: false as const, statusCode: 422, error: error instanceof Error ? error.message : "overlay_render_failed", message:error instanceof Error && error.message === "overlay_text_overflow" ? "El texto se sale de la imagen. Reduce su tamaño, acorta el texto o muévelo antes de descargar." : "No se pudo preparar esta imagen. Revisa el archivo y la composición." }; }
+}
+
+/** Immutable private PNGs linked to the exact saved composition. No model call. */
+export async function prepareOverlayForMarketing(env: ApiEnv, context: AuthContext, organizationId: string, overlayId: string, generateMissing = false, usage?: string) {
+  let loaded = await authorizedOverlay(env, context, organizationId, overlayId);
+  if (!loaded.ok) return loaded;
+  if (generateMissing) {
+    for (let index = 0; index < loaded.slides.length; index++) {
+      if (!loaded.slides[index]?.image_id || loaded.slides[index]!.blocks.length) continue;
+      const result = await draftInstagramOverlayText(env, context, organizationId, overlayId, { slide_index: index, usage, idempotency_key: `compose:${overlayFingerprint(loaded.overlay)}:${index}` });
+      if (!result.ok) return result;
+      loaded = await authorizedOverlay(env, context, organizationId, overlayId);
+      if (!loaded.ok) return loaded;
+    }
+  }
+  const revision = overlayFingerprint({ ratio: loaded.overlay.ratio, slides: loaded.slides, brief: loaded.overlay.creative_brief, renderer: OVERLAY_RENDER_VERSION });
+  const assets = [];
+  for (let index = 0; index < loaded.slides.length; index++) {
+    if (!loaded.slides[index]?.image_id) continue;
+    const rendered = await renderInstagramOverlay(env, context, organizationId, overlayId, index);
+    if (!rendered.ok) return rendered;
+    const path = `${organizationId}/overlays/${overlayId}/${revision}-${index}.png`;
+    const upload = await loaded.supabase.storage.from(PRIVATE_SOURCE_BUCKET).upload(path, rendered.data.png, { contentType: "image/png", upsert: false });
+    if (upload.error && !["409", "Duplicate"].includes(String((upload.error as { statusCode?: string }).statusCode)) && !/already exists|duplicate/i.test(upload.error.message)) return { ok: false as const, statusCode: 503, error: "overlay_asset_save_failed" };
+    const signed = await loaded.supabase.storage.from(PRIVATE_SOURCE_BUCKET).createSignedUrl(path, 3600);
+    if (signed.error || !signed.data) return { ok: false as const, statusCode: 503, error: "overlay_asset_preview_failed" };
+    const source = loaded.images.find(image => image.id === rendered.data.image_id);
+    const alt = (source?.analysis as { alt_text?: string } | null)?.alt_text ?? String(source?.original_filename ?? "Imagen de campaña");
+    assets.push({ storage_bucket: PRIVATE_SOURCE_BUCKET, storage_path: path, image_id: rendered.data.image_id, generation_run_id:loaded.slides[index]!.generation_run_id ?? null, slide_index: index, sha256: rendered.data.hash, url: signed.data.signedUrl, alt_text: `${alt}. ${overlayTextOf(loaded.slides[index]!.blocks)}`.slice(0, 800), ...OVERLAY_DIMS[rendered.data.ratio] });
+  }
+  if (!assets.length) return { ok: false as const, statusCode: 422, error: "pieza_sin_imagenes" };
+  const current = await authorizedOverlay(env, context, organizationId, overlayId);
+  if (!current.ok) return current;
+  if (overlayFingerprint({ ratio: current.overlay.ratio, slides: current.slides, brief: current.overlay.creative_brief, renderer: OVERLAY_RENDER_VERSION }) !== revision) return { ok: false as const, statusCode: 409, error: "overlay_changed_during_render" };
+  return { ok: true as const, data: { overlay_id: overlayId, revision, store_id: loaded.storeId, connection_id: loaded.connectionId, renderer: OVERLAY_RENDER_VERSION, assets } };
+}
+
 type OverlayFormat = "single" | "carousel" | "story";
 const MAX_SLIDES = 10;
 
@@ -1805,16 +1895,29 @@ function ratioForFormat(format: OverlayFormat, requested: unknown): string {
 
 export async function listInstagramOverlays(
   env: ApiEnv,
-  authorization: string,
   context: AuthContext,
   organizationId: string,
   imageId?: string,
 ) {
   const access = requireBankAccess(context, organizationId);
   if (access.ok === false) return access;
-
-  const token = authorization.slice("Bearer ".length);
-  const supabase = createUserScopedClient(env, token);
+  const scope = storeAccess(context, organizationId, null);
+  if (!scope.ok) return scope;
+  const supabase = createServiceClient(env);
+  let allowedImageIds: string[] | null = null;
+  if (scope.allowedStoreIds) {
+    const { data: images, error: imageError } = await supabase
+      .from("instagram_image_bank")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .in("store_id", scope.allowedStoreIds);
+    if (imageError) return { ok: false as const, statusCode: 500, error: "visual_asset_scope_lookup_failed", detail: imageError.message };
+    allowedImageIds = (images ?? []).map((image) => image.id as string);
+    if (imageId && !allowedImageIds.includes(imageId)) {
+      return { ok: false as const, statusCode: 403, error: "visual_asset_store_access_denied" };
+    }
+    if (allowedImageIds.length === 0) return { ok: true as const, data: { overlays: [] } };
+  }
   let query = supabase
     .from("instagram_image_overlays")
     .select(OVERLAY_COLUMNS)
@@ -1822,6 +1925,7 @@ export async function listInstagramOverlays(
     .order("created_at", { ascending: false })
     .limit(200);
   if (imageId) query = query.eq("image_id", imageId);
+  else if (allowedImageIds) query = query.in("image_id", allowedImageIds);
   const { data, error } = await query;
   if (error) {
     return {
@@ -1838,14 +1942,26 @@ async function assertImagesInOrg(
   supabase: SupabaseClient,
   organizationId: string,
   imageIds: string[],
+  context?: AuthContext,
 ): Promise<boolean> {
   if (imageIds.length === 0) return true;
   const { data } = await supabase
     .from("instagram_image_bank")
-    .select("id")
+    .select("id,store_id")
     .eq("organization_id", organizationId)
     .in("id", imageIds);
   const found = new Set((data ?? []).map((row) => row.id as string));
+  if (context) {
+    const scope = storeAccess(context, organizationId, null);
+    if (!scope.ok) return false;
+    for (const row of data ?? []) {
+      if (row.store_id && !storeAccess(context, organizationId, row.store_id).ok) return false;
+      if (!row.store_id && scope.allowedStoreIds) {
+        const linked = await supabase.from("marketing_visual_asset_sources").select("image_id").eq("organization_id", organizationId).eq("image_id", row.id).in("store_id", scope.allowedStoreIds).limit(1);
+        if (linked.error || !linked.data?.length) return false;
+      }
+    }
+  }
   return imageIds.every((id) => found.has(id));
 }
 
@@ -1879,7 +1995,7 @@ export async function createInstagramOverlay(
     .slice(0, MAX_SLIDES);
 
   const supabase = createServiceClient(env);
-  if (!(await assertImagesInOrg(supabase, organizationId, imageIds))) {
+  if (!(await assertImagesInOrg(supabase, organizationId, imageIds, context))) {
     return { ok: false as const, statusCode: 400, error: "imagen_no_encontrada" };
   }
 
@@ -1920,6 +2036,8 @@ export async function updateInstagramOverlay(
 ) {
   const access = requireBankAccess(context, organizationId);
   if (access.ok === false) return access;
+  const authorized = await authorizedOverlay(env, context, organizationId, overlayId);
+  if (!authorized.ok) return authorized;
 
   const patch: Record<string, unknown> = {};
   if (typeof payload.name === "string" && payload.name.trim()) {
@@ -1962,7 +2080,7 @@ export async function updateInstagramOverlay(
         message: `Máximo ${MAX_SLIDES} imágenes por pieza.`,
       };
     }
-    const slides: Array<{ image_id: string | null; blocks: unknown[] }> = [];
+    const slides: Array<{ image_id: string | null; blocks: unknown[]; generation_run_id?: string }> = [];
     for (const entry of slidesRaw) {
       if (typeof entry !== "object" || entry === null) {
         return { ok: false as const, statusCode: 400, error: "slide_invalido" };
@@ -1980,7 +2098,8 @@ export async function updateInstagramOverlay(
           message: "Máximo 12 bloques de texto por imagen.",
         };
       }
-      slides.push({ image_id: (imageId as string) ?? null, blocks });
+      const origin = authorized.slides[slides.length];
+      slides.push({ image_id: (imageId as string) ?? null, blocks, ...(origin?.image_id === imageId && origin.generation_run_id ? { generation_run_id: origin.generation_run_id } : {}) });
     }
     if (JSON.stringify(slides).length > 120_000) {
       return {
@@ -1993,14 +2112,16 @@ export async function updateInstagramOverlay(
     const ids = slides
       .map((slide) => slide.image_id)
       .filter((id): id is string => typeof id === "string");
-    if (!(await assertImagesInOrg(supabaseCheck, organizationId, ids))) {
+    if (!(await assertImagesInOrg(supabaseCheck, organizationId, ids, context))) {
       return {
         ok: false as const,
         statusCode: 400,
         error: "imagen_no_encontrada",
       };
     }
-    patch.slides = slides;
+    const validSlides = overlaySlidesSchema.safeParse(slides);
+    if (!validSlides.success) return { ok: false as const, statusCode: 400, error: "overlay_layout_invalid" };
+    patch.slides = validSlides.data;
     patch.image_id = slides[0]?.image_id ?? null;
   }
 
@@ -2038,6 +2159,8 @@ export async function deleteInstagramOverlay(
 ) {
   const access = requireBankAccess(context, organizationId);
   if (access.ok === false) return access;
+  const authorized = await authorizedOverlay(env, context, organizationId, overlayId);
+  if (!authorized.ok) return authorized;
 
   const supabase = createServiceClient(env);
   const { error } = await supabase
@@ -2086,9 +2209,13 @@ export async function draftInstagramOverlayText(
   organizationId: string,
   overlayId: string,
   payload: Record<string, unknown>,
+  options: { beforeModel?: Parameters<typeof draftInstagramOverlay>[1]["beforeModel"] } = {},
 ) {
   const access = requireBankAccess(context, organizationId);
   if (access.ok === false) return access;
+
+  const authorized = await authorizedOverlay(env, context, organizationId, overlayId);
+  if (!authorized.ok) return authorized;
 
   const supabase = createServiceClient(env);
   const { data: overlay } = await supabase
@@ -2119,19 +2246,111 @@ export async function draftInstagramOverlayText(
 
   const { data: image } = await supabase
     .from("instagram_image_bank")
-    .select("id, public_url, storage_bucket, storage_path, original_filename, markdown")
+    .select("id, public_url, storage_bucket, storage_path, original_filename, markdown, store_id")
     .eq("id", slide.image_id)
     .eq("organization_id", organizationId)
     .maybeSingle();
   if (!image) {
     return { ok: false as const, statusCode: 404, error: "imagen_no_encontrada" };
   }
+  const imageScope = storeAccess(context, organizationId, image.store_id as string | null);
+  if (!imageScope.ok) return imageScope;
 
-  const resolvedImageUrl = await resolveBankImageUrls(supabase, organizationId, [image as Record<string, unknown>]);
-  const imageUrl = resolvedImageUrl.urls.get(image.id as string) ?? null;
-  if (!imageUrl) {
-    return { ok: false as const, statusCode: 502, error: "visual_asset_preview_url_failed", detail: resolvedImageUrl.errors.get(image.id as string) ?? "missing_signed_url" };
+  let productContext: string | null = null;
+  if (authorized.storeId) {
+    const { data: sources } = await supabase
+      .from("marketing_visual_asset_sources")
+      .select("channel, store_id, source_metadata")
+      .eq("organization_id", organizationId)
+      .eq("image_id", image.id)
+      .eq("store_id", authorized.storeId);
+    const productId = (sources ?? []).map((source) => {
+      const metadata = source.source_metadata && typeof source.source_metadata === "object"
+        ? source.source_metadata as Record<string, unknown>
+        : {};
+      const isShopifySource = source.channel === "shopify" || metadata.source === "shopify_catalog";
+      return isShopifySource && typeof metadata.product_id === "string" ? metadata.product_id : null;
+    }).find((id): id is string => Boolean(id));
+    if (productId) {
+      const { data: product } = await supabase
+        .from("shopify_products")
+        .select("title, product_type, description_html, tags")
+        .eq("id", productId)
+        .eq("organization_id", organizationId)
+        .eq("store_id", authorized.storeId)
+        .maybeSingle();
+      if (product) {
+        const description = typeof product.description_html === "string"
+          ? product.description_html.replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/\s+/g, " ").trim().slice(0, 1200)
+          : "";
+        productContext = [
+          `Nombre: ${product.title}`,
+          product.product_type ? `Tipo: ${product.product_type}` : null,
+          description ? `Descripción de Shopify: ${description}` : null,
+          Array.isArray(product.tags) && product.tags.length ? `Etiquetas verificadas: ${product.tags.join(", ")}` : null,
+          "No se han proporcionado precio, promoción, stock ni resultados comerciales.",
+        ].filter(Boolean).join("\n");
+      }
+    }
   }
+
+  const ratio = overlayRatioSchema.parse(overlay.ratio);
+  const storeId = authorized.storeId;
+  let brandQuery = supabase.from("marketing_brand_profiles").select("brand_name,palette,available_fonts,tone_guidelines,preferred_vocabulary,avoided_vocabulary,required_texts,claim_restrictions,image_guidelines").eq("organization_id", organizationId);
+  const brand = storeId ? await brandQuery.eq("store_id", storeId).maybeSingle() : await brandQuery.is("store_id", null).maybeSingle();
+  if (brand.error) return { ok: false as const, statusCode: 503, error: "marketing_brand_profile_load_failed" };
+  const fallbackBrand = !brand.data && storeId ? await supabase.from("marketing_brand_profiles").select("brand_name,palette,available_fonts,tone_guidelines,preferred_vocabulary,avoided_vocabulary,required_texts,claim_restrictions,image_guidelines").eq("organization_id", organizationId).is("store_id", null).maybeSingle() : null;
+  if (fallbackBrand?.error) return { ok: false as const, statusCode: 503, error: "marketing_brand_profile_load_failed" };
+  const compositionContext = {
+    overlay_id: overlayId, slide_index: slideIndex, ratio,
+    brand: brand.data ?? fallbackBrand?.data ?? { status: "not_configured" },
+    slides: authorized.slides.map((item, index) => ({ index, image_id: item.image_id,
+      source_revision: authorized.images.find(row => row.id === item.image_id)?.content_revision,
+      source_sha256: authorized.images.find(row => row.id === item.image_id)?.checksum,
+      description: authorized.images.find(row => row.id === item.image_id)?.markdown,
+      saved_copy: index === slideIndex ? null : overlayTextOf(item.blocks),
+    })),
+    instruction: "Mantén la narrativa y la voz de la pieza completa. No repitas titulares de otros slides. La imagen adjunta principal YA tiene el recorte final; coloca el texto en ese lienzo. Respeta texto literal indicado en el brief.",
+  };
+  const objective = typeof payload.objective === "string" ? payload.objective.trim().slice(0, 2000) : String(overlay.creative_brief ?? "");
+  const inputHash = overlayFingerprint({ compositionContext, productContext, objective, usage:payload.usage, source: authorized.images.map(row => [row.id, row.checksum, row.content_revision]), renderer:OVERLAY_RENDER_VERSION, model: getAgentModelDecision("a16_texto_sobre_imagen")?.model });
+  if (payload.idempotency_key !== undefined && (typeof payload.idempotency_key !== "string" || !payload.idempotency_key.trim() || payload.idempotency_key.length > 160)) return { ok: false as const, statusCode: 400, error: "overlay_idempotency_key_invalid" };
+  const key = typeof payload.idempotency_key === "string" ? payload.idempotency_key : `implicit:${inputHash}`;
+  const hash = overlayFingerprint([organizationId, context.user.id, overlayId, slideIndex, key]);
+  const runId = `${hash.slice(0,8)}-${hash.slice(8,12)}-5${hash.slice(13,16)}-a${hash.slice(17,20)}-${hash.slice(20,32)}`;
+  const prior = await supabase.from("agent_runs").select("status,started_at,agent_outputs(output),agent_context_snapshots(snapshot)").eq("id", runId).eq("organization_id", organizationId).maybeSingle();
+  if (prior.error) return { ok: false as const, statusCode: 503, error: "overlay_generation_lookup_failed" };
+  const priorOutput = prior.data?.agent_outputs as unknown as { output: unknown } | Array<{ output: unknown }> | null;
+  const cached = Array.isArray(priorOutput) ? priorOutput[0]?.output : priorOutput?.output;
+  const snapshots = prior.data?.agent_context_snapshots as unknown as { snapshot: { blocks?: Array<{ data?: { input_hash?: string } }> } } | Array<{ snapshot: { blocks?: Array<{ data?: { input_hash?: string } }> } }> | null;
+  const snapshot = Array.isArray(snapshots) ? snapshots[0]?.snapshot : snapshots?.snapshot;
+  const previousInputHash = snapshot?.blocks?.find(block => block.data?.input_hash)?.data?.input_hash;
+  if (prior.data && previousInputHash && previousInputHash !== inputHash) return { ok: false as const, statusCode: 409, error: "overlay_request_changed", message: "La pieza cambió desde esta petición. Actualiza la vista antes de generar otra propuesta." };
+  const inProgress = prior.data && ["running", "queued"].includes(prior.data.status);
+  const resilience = getAgentModelDecision("a16_texto_sobre_imagen")!.resilience;
+  const staleAfter = resilience.timeoutMs * (resilience.maxRetries + 1) + 120_000;
+  if (inProgress && !cached && Date.now() - Date.parse(prior.data!.started_at) > staleAfter) {
+    const expired = await supabase.from("agent_runs").update({ status:"timeout", finished_at:new Date().toISOString(), error_message:"a16_generation_lease_expired" }).eq("id",runId).eq("organization_id",organizationId).eq("status",prior.data!.status).select("id").maybeSingle();
+    if (expired.error) return { ok:false as const,statusCode:503,error:"overlay_generation_lookup_failed" };
+    if (expired.data) return { ok:false as const,statusCode:422,error:"overlay_generation_failed",message:"La ejecución anterior agotó su tiempo. Se conservan los slides terminados; vuelve a pulsar para generar el pendiente." };
+  }
+  if (prior.data && !cached) return { ok: false as const, statusCode: inProgress ? 409 : 422, error: inProgress ? "overlay_generation_in_progress" : "overlay_generation_failed", message: inProgress ? "La propuesta sigue generándose. Espera y vuelve a pulsar para recuperar esa misma respuesta." : "La generación anterior falló. Puedes volver a intentarlo; se conservan los slides terminados." };
+  const parsedCache = cached ? instagramOverlayDraftSchema.safeParse(cached) : null;
+  if (parsedCache && !parsedCache.success) return { ok: false as const, statusCode: 422, error: "overlay_cached_output_invalid" };
+  let draft = parsedCache?.success ? parsedCache.data : undefined;
+  if (!draft) {
+  let imageUrl: string;
+  const neighborImages = [];
+  try {
+    const crop = await cropOverlayImage(await overlaySourceBytes(supabase, organizationId, image), ratio);
+    imageUrl = `data:image/png;base64,${crop.toString("base64")}`;
+    for (const index of [slideIndex - 1, slideIndex + 1]) {
+      const neighbor = authorized.images.find(row => row.id === authorized.slides[index]?.image_id);
+      if (!neighbor) continue;
+      const bytes = await cropOverlayImage(await overlaySourceBytes(supabase, organizationId, neighbor), ratio);
+      neighborImages.push({ url: `data:image/png;base64,${bytes.toString("base64")}`, role: `slide vecino ${index + 1}; solo contexto` });
+    }
+  } catch { return { ok: false as const, statusCode: 502, error: "overlay_source_load_failed" }; }
 
   const result = await draftInstagramOverlay(env, {
     organizationId,
@@ -2139,13 +2358,15 @@ export async function draftInstagramOverlayText(
     imageUrl,
     filename: image.original_filename as string,
     fichaMarkdown: (image.markdown as string | null) ?? null,
+    productContext,
+    runId, storeId, compositionContext:{...compositionContext,input_hash:inputHash}, neighborImages,
+    ...(options.beforeModel ? { beforeModel: options.beforeModel } : {}),
     objective:
-      `${overlay.channel === "meta_ads" ? "Anuncio de Meta Ads" : "Contenido orgánico de Instagram"}. ${(typeof payload.objective === "string" ? payload.objective.trim() : "").slice(0, 500) ||
+      `${payload.usage === "email_klaviyo" ? "Imagen para un mailing" : overlay.channel === "meta_ads" ? "Anuncio de Meta Ads" : "Contenido orgánico de Instagram"}. ${(typeof payload.objective === "string" ? payload.objective.trim() : "").slice(0, 500) ||
       (overlay.creative_brief as string | null) ||
       ""}`,
     format: normalizeFormat(overlay.format),
-    ratio:
-      overlay.ratio === "1:1" || overlay.ratio === "9:16" ? overlay.ratio : "4:5",
+    ratio,
     slideIndex,
     slideCount: slides.length || 1,
   });
@@ -2157,12 +2378,21 @@ export async function draftInstagramOverlayText(
       detail: result.detail,
     };
   }
+  draft = result.draft;
+  }
+  const blocks = overlayEditorBlocks(draft);
+  const current = await authorizedOverlay(env, context, organizationId, overlayId);
+  if (!current.ok) return current;
+  if (current.slides[slideIndex]?.image_id !== image.id || current.overlay.ratio !== overlay.ratio || current.overlay.creative_brief !== authorized.overlay.creative_brief) return { ok: false as const, statusCode: 409, error: "overlay_changed_during_generation" };
+  if (!cached && overlayFingerprint(current.slides[slideIndex]?.blocks) !== overlayFingerprint(authorized.slides[slideIndex]?.blocks)) return { ok: false as const, statusCode: 409, error: "overlay_changed_during_generation" };
+  const nextSlides = current.slides.map((item,index) => index === slideIndex ? { ...item, blocks, generation_run_id:runId } : item);
+  const saved = await supabase.from("instagram_image_overlays").update({ slides: nextSlides }).eq("id", overlayId).eq("organization_id", organizationId).eq("updated_at", current.overlay.updated_at).select("id").maybeSingle();
+  if (saved.error || !saved.data) return { ok: false as const, statusCode: 409, error: "overlay_changed_during_generation" };
   return {
     ok: true as const,
     data: {
-      draft: result.draft,
-      run_id: result.runId,
-      ...(result.judgment ? { judgment: result.judgment } : {}),
+      draft, editor_blocks: blocks,
+      run_id: runId, recovered: Boolean(cached),
     },
   };
 }
@@ -2179,6 +2409,14 @@ export async function generatePublicationCaption(
 ) {
   const access = requireBankAccess(context, organizationId);
   if (access.ok === false) return access;
+  const authorized = await authorizedOverlay(env, context, organizationId, overlayId);
+  if (!authorized.ok) return authorized;
+  // Finish optional A16 stages before assembling A11's brief. A retry then
+  // sees exactly the same saved text and produces the same A11 fingerprint.
+  if (payload.compose_overlay === true) {
+    const prepared = await prepareOverlayForMarketing(env, context, organizationId, overlayId, true, payload.channel === "email_klaviyo" ? "email_klaviyo" : undefined);
+    if (!prepared.ok) return prepared;
+  }
 
   const supabase = createServiceClient(env);
   const { data: overlay } = await supabase
@@ -2264,7 +2502,9 @@ export async function generatePublicationCaption(
 
   return runMarketingContentDraft(env, context, organizationId, {
     content_type: "campaign",
-    channel: overlay.channel === "meta_ads" ? "meta_ads" : "instagram_organic",
+    channel: payload.channel === "email_klaviyo" ? "email_klaviyo" : overlay.channel === "meta_ads" ? "meta_ads" : "instagram_organic",
+    overlay_id: overlayId,
+    compose_overlay: false,
     ...(typeof payload.idempotency_key === "string" ? { idempotency_key: payload.idempotency_key } : {}),
     brief,
   });

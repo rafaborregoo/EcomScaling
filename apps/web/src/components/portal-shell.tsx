@@ -9,6 +9,7 @@ import {
   useEffect,
   useRef,
   useState,
+  Fragment,
 } from "react";
 import {
   apiFetch,
@@ -43,6 +44,7 @@ import {
   ComboboxLabel,
   ComboboxList,
   ComboboxSeparator,
+  Separator,
   ComboboxTrigger,
   ComboboxValue,
   Drawer,
@@ -143,7 +145,20 @@ type ClientGroupOrOption = ClientOption | { value: string; items: ClientOption[]
 const ALL_STORES_KEY = "__all_stores__";
 const PRIMARY_NAV_MODE_STORAGE_KEY = "ecomscaling:primary-nav-mode";
 
-type PrimaryNavMode = "hover" | "collapsed" | "expanded";
+type PrimaryNavMode = "collapsed" | "expanded";
+
+// Las columnas de navegación miden lo que su texto, así que cambian de ancho
+// con cada módulo. La celda del logo de la barra superior va fuera de ese grid
+// y sigue su borde con --nav-columns-w (subgrid rompería el sticky del header).
+function trackNavColumns(content: HTMLElement | null) {
+  if (!content) return;
+  const sync = () =>
+    document.documentElement.style.setProperty("--nav-columns-w", `${content.getBoundingClientRect().left}px`);
+  const observer = new ResizeObserver(sync);
+  observer.observe(content);
+  sync();
+  return () => observer.disconnect();
+}
 
 // Rutas que operan sobre un cliente concreto y todavia NO tienen estado de
 // "vista general" propio: en vista general (sin cliente activo) muestran un
@@ -420,20 +435,15 @@ function PortalShellContent({ title, children }: PortalShellProps) {
   });
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const sectionTabsRef = useRef<HTMLElement>(null);
-  // Por defecto "hover": pasar el raton por el rail lo expande. "collapsed"
-  // (solo iconos, sin expandirse nunca) dejaba el rail mudo hasta que alguien
-  // entrara al Control de navegacion y lo cambiara a mano -- eso es lo que
-  // parecia roto.
-  const [primaryNavMode, setPrimaryNavMode] = useState<PrimaryNavMode>(
-    "hover",
-  );
-  const [isPrimaryNavHovered, setIsPrimaryNavHovered] = useState(false);
+  // Por defecto con nombres: "collapsed" (solo iconos) deja el rail mudo salvo
+  // por los tooltips, así que solo se usa si alguien lo elige.
+  const [primaryNavMode, setPrimaryNavMode] = useState<PrimaryNavMode>("expanded");
   const [isPrimaryNavControlOpen, setIsPrimaryNavControlOpen] = useState(false);
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
 
   useEffect(() => {
     const savedMode = window.localStorage.getItem(PRIMARY_NAV_MODE_STORAGE_KEY);
-    if (savedMode !== "expanded" && savedMode !== "collapsed" && savedMode !== "hover") return;
+    if (savedMode !== "expanded" && savedMode !== "collapsed") return;
 
     const restorePrimaryNavMode = window.setTimeout(() => {
       setPrimaryNavMode(savedMode);
@@ -443,20 +453,16 @@ function PortalShellContent({ title, children }: PortalShellProps) {
   }, []);
 
   const handleModuleNavigation = (href: string) => {
-    if (primaryNavMode === "hover") setIsPrimaryNavHovered(false);
     router.push(href);
   };
 
   const selectPrimaryNavMode = (nextMode: PrimaryNavMode) => {
     window.localStorage.setItem(PRIMARY_NAV_MODE_STORAGE_KEY, nextMode);
     setPrimaryNavMode(nextMode);
-    setIsPrimaryNavHovered(false);
     setIsPrimaryNavControlOpen(false);
   };
 
-  const isPrimaryNavExpanded =
-    primaryNavMode === "expanded" ||
-    (primaryNavMode === "hover" && isPrimaryNavHovered);
+  const isPrimaryNavExpanded = primaryNavMode === "expanded";
   // Pregunta con la que un módulo abre el Consultor IA (ver copilot-ask.tsx).
   // Vive aquí porque el panel vive aquí: el módulo solo dice qué preguntar.
   const [copilotAsk, setCopilotAsk] = useState<CopilotAsk | null>(null);
@@ -1106,7 +1112,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
     compact: boolean,
     dots: Record<string, boolean | null> | null,
   ) => (
-    <div className={compact ? "grid gap-1" : "grid gap-0.5"}>
+    <div className={compact ? "grid gap-1" : "grid gap-0"}>
       {module.items.map((item, index) => {
         const dot = dots
           ? dots[new URLSearchParams(item.href.split("?")[1] ?? "").get("section") ?? ""]
@@ -1128,7 +1134,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               <span
                 aria-disabled="true"
                 title="Se activa en cuanto tengas un consultor asignado"
-                className="flex min-h-10 cursor-not-allowed items-center rounded-lg px-3 py-2.5 text-[0.9375rem] text-muted opacity-50"
+                className="flex min-h-9 cursor-not-allowed items-center rounded-lg px-3 py-2 text-[0.9375rem] font-normal text-muted opacity-50"
               >
                 <span className="flex-1">{item.label}</span>
               </span>
@@ -1137,13 +1143,13 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                 href={item.href}
                 aria-current={active ? "page" : undefined}
                 className={[
-                  "group flex w-full min-w-0 min-h-10 items-center rounded-lg px-3 py-2.5 text-left text-[0.9375rem] no-underline transition-colors duration-150 hover:bg-surface hover:no-underline motion-reduce:transition-none",
+                  "group flex w-full min-w-0 min-h-9 items-center rounded-lg px-3 py-2 text-left text-[0.9375rem] no-underline transition-colors duration-150 hover:no-underline motion-reduce:transition-none",
                   active
-                    ? "bg-surface font-medium text-[var(--nav-active)]"
-                    : "text-muted hover:text-foreground",
+                    ? "text-[var(--nav-active)]"
+                    : "text-foreground hover:text-[var(--nav-active)]",
                 ].join(" ")}
               >
-                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                <span className="min-w-0 flex-1 truncate font-normal">{item.label}</span>
                 {dot === true || dot === false ? (
                   <span
                     className={`ml-2 size-2 shrink-0 rounded-full ${dot ? "bg-success" : "bg-accent"}`}
@@ -1560,10 +1566,10 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                       href={item.href}
                       aria-current={active ? "page" : undefined}
                       className={[
-                        "shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm no-underline transition-colors hover:no-underline",
+                        "shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-normal no-underline transition-colors hover:no-underline",
                         active
-                          ? "bg-surface font-medium text-[var(--nav-active)]"
-                          : "text-muted hover:text-foreground",
+                          ? "text-[var(--nav-active)]"
+                          : "text-foreground hover:text-[var(--nav-active)]",
                       ].join(" ")}
                     >
                       {item.label}
@@ -1598,10 +1604,8 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               arranca en la misma vertical que los iconos del rail, y el
               borde derecho continúa el de la columna de secciones. */}
             <div
-              className={`flex h-full shrink-0 items-center border-r border-separator ${
-                hasSectionNav
-                  ? primaryNavMode === "expanded" ? "w-[28.5rem] pl-7 pr-5" : "w-[20.25rem] pl-7 pr-5"
-                  : primaryNavMode === "expanded" ? "w-[13rem] pl-7 pr-5" : "w-[4.75rem] justify-center"
+              className={`flex h-full w-(--nav-columns-w) shrink-0 items-center border-r border-separator ${
+                hasSectionNav || primaryNavMode === "expanded" ? "pl-7 pr-5" : "justify-center"
               }`}
             >
               <Link
@@ -1653,23 +1657,17 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               "relative grid min-h-dvh lg:min-h-[calc(100dvh/var(--ui-zoom)_-_3.5rem)] admin-shell-grid",
               !hasSectionNav
                 ? primaryNavMode === "expanded"
-                  ? "lg:grid-cols-[13rem_minmax(0,1fr)]"
+                  ? "lg:grid-cols-[max-content_minmax(0,1fr)]"
                   : "lg:grid-cols-[4.75rem_minmax(0,1fr)]"
                 : primaryNavMode === "expanded"
-                  ? "lg:grid-cols-[13rem_15.5rem_minmax(0,1fr)]"
-                  : "lg:grid-cols-[4.75rem_15.5rem_minmax(0,1fr)]",
+                  ? "lg:grid-cols-[max-content_max-content_minmax(0,1fr)]"
+                  : "lg:grid-cols-[4.75rem_max-content_minmax(0,1fr)]",
             ].join(" ")}
           >
             <aside
-              onMouseEnter={() => {
-                if (primaryNavMode === "hover") setIsPrimaryNavHovered(true);
-              }}
-              onMouseLeave={() => {
-                if (primaryNavMode === "hover") setIsPrimaryNavHovered(false);
-              }}
               className={[
-                "sticky top-14 z-40 hidden h-[calc(100dvh/var(--ui-zoom)_-_3.5rem)] shrink-0 flex-col overflow-hidden border-r border-separator bg-white py-3 text-foreground transition-[width] duration-200 ease-out lg:flex admin-primary-nav",
-                isPrimaryNavExpanded ? "w-[13rem] items-stretch" : "w-[4.75rem] items-center",
+                "sticky top-14 z-40 hidden h-[calc(100dvh/var(--ui-zoom)_-_3.5rem)] shrink-0 flex-col overflow-hidden border-r border-separator bg-white py-3 text-foreground lg:flex admin-primary-nav",
+                isPrimaryNavExpanded ? "w-max items-stretch" : "w-[4.75rem] items-center",
               ].join(" ")}
             >
               <nav
@@ -1681,9 +1679,16 @@ function PortalShellContent({ title, children }: PortalShellProps) {
               >
                 {navigationModules
                   .filter((module) => !module.utility)
-                  .map((module) => {
+                  .map((module, index, modules) => {
                     const Icon = module.icon;
                     const active = module.id === activeModule.id;
+                    const startsGroup = module.navGroup !== undefined && modules[index - 1]?.navGroup !== module.navGroup;
+                    // Abierto, el bloque lleva su nombre; en iconos, una línea discreta.
+                    const groupMark = !startsGroup ? null : isPrimaryNavExpanded ? (
+                      <p className="mt-2 px-3 text-xs font-medium text-muted first:mt-0">{module.navGroup}</p>
+                    ) : index > 0 ? (
+                      <Separator className="my-1 w-6 shrink-0" />
+                    ) : null;
                     const badge = module.items.reduce(
                       (total, item) => total + (navBadges[navItemPath(item)] ?? 0),
                       0,
@@ -1696,16 +1701,16 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                         aria-current={active ? "page" : undefined}
                         onClick={() => handleModuleNavigation(module.items[0].href)}
                         className={[
-                          "relative flex h-11 shrink-0 items-center rounded-lg no-underline transition-colors duration-150 hover:bg-surface hover:no-underline motion-reduce:transition-none",
+                          "relative flex h-9 shrink-0 items-center rounded-lg no-underline transition-colors duration-150 hover:no-underline motion-reduce:transition-none",
                           isPrimaryNavExpanded
-                            ? "w-full gap-3 px-3"
-                            : "size-11 justify-center",
+                            ? "w-full gap-2 px-3"
+                            : "size-9 justify-center",
                           active
-                            ? "bg-surface text-foreground"
-                            : "text-muted hover:text-foreground",
+                            ? "text-[var(--nav-active)]"
+                            : "text-foreground hover:text-[var(--nav-active)]",
                         ].join(" ")}
                       >
-                        <Icon className="size-5" aria-hidden />
+                        <Icon className="size-[0.9375rem]" aria-hidden />
                         {badge > 0 ? (
                           <span
                             aria-label={`${badge} sin leer`}
@@ -1714,7 +1719,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                         ) : null}
                         <span
                           className={[
-                            "min-w-0 truncate text-sm font-medium transition-opacity duration-150",
+                            "min-w-0 truncate text-[0.9375rem] font-normal transition-opacity duration-150",
                             isPrimaryNavExpanded
                               ? "opacity-100"
                               : "hidden",
@@ -1731,14 +1736,17 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                     );
                     // Colapsado el rail es solo iconos: sin tooltip no hay forma
                     // de saber que es cada uno sin pulsarlo.
-                    if (isPrimaryNavExpanded) return link;
+                    if (isPrimaryNavExpanded) return <Fragment key={module.id}>{groupMark}{link}</Fragment>;
                     return (
-                      <Tooltip key={module.id} delay={300}>
-                        {link}
-                        <Tooltip.Content placement="right">
-                          <p>{module.label}</p>
-                        </Tooltip.Content>
-                      </Tooltip>
+                      <Fragment key={module.id}>
+                        {groupMark}
+                        <Tooltip delay={300}>
+                          {link}
+                          <Tooltip.Content placement="right">
+                            <p>{module.label}</p>
+                          </Tooltip.Content>
+                        </Tooltip>
+                      </Fragment>
                     );
                   })}
               </nav>
@@ -1760,27 +1768,27 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                             handleModuleNavigation("/integraciones/shopify")
                           }
                           className={[
-                            "flex h-11 items-center rounded-lg no-underline transition-colors hover:bg-surface hover:no-underline",
+                            "flex h-9 items-center rounded-lg no-underline transition-colors hover:no-underline",
                             isPrimaryNavExpanded
-                              ? "w-full gap-3 px-3"
-                              : "size-11 justify-center",
+                              ? "w-full gap-2 px-3"
+                              : "size-9 justify-center",
                             pathname === "/integraciones/shopify"
-                              ? "bg-surface text-accent"
-                              : "text-muted hover:text-foreground",
+                              ? "text-[var(--nav-active)]"
+                              : "text-foreground hover:text-[var(--nav-active)]",
                           ].join(" ")}
                         >
                           <span
-                            className="relative inline-flex size-5 shrink-0 items-center justify-center"
+                            className="relative inline-flex size-[0.9375rem] shrink-0 items-center justify-center"
                             aria-hidden
                           >
-                            <StoreIcon className="size-5" />
+                            <StoreIcon className="size-[0.9375rem]" />
                             <span className="absolute -right-1 -bottom-1 flex size-3 items-center justify-center rounded-full bg-accent text-white ring-2 ring-white">
                               <PlusIcon className="size-1.5" />
                             </span>
                           </span>
                           <span
                             className={[
-                              "truncate text-sm font-medium transition-opacity duration-150",
+                              "truncate text-[0.9375rem] font-normal transition-opacity duration-150",
                               isPrimaryNavExpanded ? "opacity-100" : "hidden",
                             ].join(" ")}
                           >
@@ -1812,16 +1820,16 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                         aria-current={active ? "page" : undefined}
                         onClick={() => handleModuleNavigation(module.items[0].href)}
                         className={[
-                          "relative flex h-11 items-center rounded-lg no-underline transition-colors hover:bg-surface hover:no-underline",
+                          "relative flex h-9 items-center rounded-lg no-underline transition-colors hover:no-underline",
                           isPrimaryNavExpanded
-                            ? "w-full gap-3 px-3"
-                            : "size-11 justify-center",
+                            ? "w-full gap-2 px-3"
+                            : "size-9 justify-center",
                           active
-                            ? "bg-surface text-foreground"
-                            : "text-muted hover:text-foreground",
+                            ? "text-[var(--nav-active)]"
+                            : "text-foreground hover:text-[var(--nav-active)]",
                         ].join(" ")}
                       >
-                        <Icon className="size-5" aria-hidden />
+                        <Icon className="size-[0.9375rem]" aria-hidden />
                         {/* Integraciones vive dentro de Configuración: sus
                             incidencias se señalan en este icono. */}
                         {module.id === "configuracion" && integrationIssueCount > 0 ? (
@@ -1832,7 +1840,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                         ) : null}
                         <span
                           className={[
-                            "truncate text-sm font-medium transition-opacity duration-150",
+                            "truncate text-[0.9375rem] font-normal transition-opacity duration-150",
                             isPrimaryNavExpanded
                               ? "opacity-100"
                               : "hidden",
@@ -1867,7 +1875,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                       title="Control de navegación"
                       aria-label="Control de navegación lateral"
                       className={[
-                        "flex h-11 items-center rounded-lg text-muted transition-colors hover:bg-surface hover:text-foreground",
+                        "flex h-11 items-center rounded-lg text-foreground transition-colors hover:text-[var(--nav-active)]",
                         isPrimaryNavExpanded
                           ? "w-full gap-3 px-3"
                           : "size-11 justify-center",
@@ -1876,7 +1884,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                       <PanelLeftIcon className="size-5" aria-hidden />
                       <span
                         className={[
-                          "truncate text-sm font-medium transition-opacity duration-150",
+                          "truncate text-[0.9375rem] font-normal transition-opacity duration-150",
                           isPrimaryNavExpanded
                             ? "opacity-100"
                             : "hidden",
@@ -1894,7 +1902,6 @@ function PortalShellContent({ title, children }: PortalShellProps) {
                       <div className="grid gap-0.5 p-2">
                         {(
                           [
-                            ["hover", "Expandir al pasar"],
                             ["collapsed", "Solo iconos"],
                             ["expanded", "Iconos y nombres"],
                           ] as const
@@ -1940,6 +1947,7 @@ function PortalShellContent({ title, children }: PortalShellProps) {
             <ResizablePanelGroup autoSaveId="copilot" className="min-w-0 max-lg:block">
             <ResizablePanel>
             <section
+              ref={trackNavColumns}
               id="portal-content"
               tabIndex={-1}
               data-module={activeModule?.id}

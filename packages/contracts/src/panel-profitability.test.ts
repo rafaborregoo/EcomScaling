@@ -36,6 +36,26 @@ const complete = {
   cac_blended: 19.5,
 };
 
+test("una fuente financiera no verificable bloquea palancas y no infla cliente ni cartera", () => {
+  const raw = store("unverified", "org", complete);
+  const flagged = buildStoreRow({
+    store: { id: raw.store_id, organization_id: raw.organization_id, organization_name: "org", connection_id: null, shop_name: "Tienda", domain: null, currency_code: "EUR" },
+    financial: complete, previous: null, financialComparability: { can_use_financial_model: false },
+    funnel: { days_with_sessions: 30, sessions: 21400 }, targets: { net_margin_pct: 20 }, periodDays: 30,
+  });
+  assert.equal(flagged.tier, "datos");
+  assert.ok(flagged.flags.some((flag) => flag.key === "financial_unverified" && flag.blocking));
+  assert.equal(flagged.lever_total, 0);
+  assert.equal(aggregateClients([flagged])[0]?.net_profit, null);
+  const totals = aggregateTotals([flagged]);
+  assert.equal(totals.stores_counted, 0);
+  assert.equal(totals.stores_excluded, 1);
+  assert.equal(totals.currency_code, null);
+  assert.equal(totals.net_profit, 0);
+  const verified = store("verified", "other", complete);
+  assert.equal(aggregateTotals([verified, flagged]).net_profit, verified.net_profit);
+});
+
 function store(
   id: string,
   org: string,
@@ -55,6 +75,7 @@ function store(
       currency_code: currency,
     },
     financial,
+    financialComparability: { can_use_financial_model: true },
     previous,
     funnel: { days_with_sessions: 30, sessions: 21400 },
     targets,
@@ -248,6 +269,7 @@ test("gastos fijos: se reparten por facturacion y las tiendas suman el beneficio
     buildStoreRow({
       store: { id, organization_id: "O", organization_name: "O", connection_id: id, shop_name: id, domain: null, currency_code: "EUR" },
       financial,
+      financialComparability: { can_use_financial_model: true },
       previous: null,
       funnel: null,
       targets: {},
@@ -271,6 +293,7 @@ test("conversión por tienda: pedidos entre sesiones, y nada sin informe de sesi
   const blind = buildStoreRow({
     store: { id: "x", organization_id: "o", organization_name: "o", connection_id: null, shop_name: "x", domain: null, currency_code: "EUR" },
     financial: { orders_count: 214 },
+    financialComparability: null,
     previous: null,
     funnel: { days_with_sessions: 0, sessions: 0 },
     targets: {},

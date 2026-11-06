@@ -536,9 +536,9 @@ export function PortfolioLevel({
               </table>
             </div>
             <p className={s.foot} style={{ marginTop: 14 }}>
-              Los totales suman solo tiendas en {currency ?? "la moneda mayoritaria"}
+                Los totales suman solo tiendas con modelo financiero verificable en {currency ?? "una moneda confirmada"}
               {totals.stores_excluded > 0
-                ? `: ${totals.stores_excluded} ${totals.stores_excluded === 1 ? "tienda se muestra" : "tiendas se muestran"} en su moneda y ${totals.stores_excluded === 1 ? "queda" : "quedan"} fuera`
+                  ? `: ${totals.stores_excluded} ${totals.stores_excluded === 1 ? "tienda queda" : "tiendas quedan"} fuera por moneda o datos pendientes de verificar`
                 : ""}
               . «≈» es una cifra estimada: faltan costes y no debe decirse al cliente como cierta.
               {data.truncated ? " La cartera es muy grande: se muestran las primeras 150 tiendas." : ""}

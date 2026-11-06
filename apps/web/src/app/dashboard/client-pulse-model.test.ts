@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { chartScale, fmtCurrency, fmtEur, moneyFlow, monthlyWithProjection, unitEconomics } from "./client-pulse-model";
+import { channelReading, channelSync, chartScale, fmtCurrency, fmtEur, moneyFlow, monthlyWithProjection, unitEconomics, type ChannelSync } from "./client-pulse-model";
 
 const financial = {
   net_sales: 48230,
@@ -98,6 +98,40 @@ test("el gráfico incluye ventas negativas y la comparación sin recortarlas", (
   }
 });
 
+test("channelReading: si no se pudo leer la conexión no dice «Sin conectar»", () => {
+  const unknown = channelReading({ name: "Klaviyo", sync: "unknown", hasData: false, metric: "10 €", detail: "x", emptyDetail: "y", connectDetail: "z" });
+  assert.deepEqual(unknown, { value: "Sin datos", detail: "No se ha podido comprobar Klaviyo" });
+  assert.equal(channelReading({ name: "Klaviyo", sync: "unknown", hasData: true, metric: "10 €", detail: "x", emptyDetail: "y", connectDetail: "z" }).value, "10 €");
+});
+
+const reading = (sync: ChannelSync, hasData: boolean) =>
+  channelReading({ name: "Klaviyo", sync, hasData, metric: "0 €", detail: "Atribuidos", emptyDetail: "Sin envíos", connectDetail: "Conecta tu email" });
+
+test("un canal sin datos fiables nunca enseña un cero", () => {
+  assert.equal(reading("reconnect", false).value, "Sin datos");
+  assert.equal(reading("stale", false).value, "Sin datos");
+  assert.equal(reading("ok", false).value, "Sin datos");
+  assert.equal(reading("off", true).value, "Sin conectar");
+  assert.equal(reading("ok", true).value, "0 €");
+  assert.match(reading("reconnect", true).detail, /incompleto/);
+});
+
+test("un fallo de sincronización no pide reconectar; un permiso caído sí", () => {
+  const now = Date.parse("2026-11-04T12:00:00Z");
+  const synced = "2026-11-04T10:00:00Z";
+  assert.equal(channelSync(null, now), "off");
+  assert.equal(channelSync({ status: "connected", last_sync_at: synced }, now), "ok");
+  assert.equal(channelSync({ status: "connected", last_sync_at: "2026-11-01T10:00:00Z" }, now), "stale");
+  assert.equal(channelSync({ status: "connected", last_sync_at: null }, now), "stale");
+  assert.equal(channelSync({ status: "error", last_sync_at: synced, last_error_message: "HTTP 502" }, now), "failed");
+  assert.equal(channelSync({ status: "error", last_sync_at: synced, last_error_message: "token expired" }, now), "reconnect");
+  assert.equal(channelSync({ status: "revoked", last_sync_at: synced }, now), "reconnect");
+});
+
+test("una métrica de unidades enteras no pinta marcas de medio pedido", () => {
+  assert.deepEqual(chartScale([0, 1, 1], null, 1).ticks, [0, 1]);
+});
+
 test("la escala no divide por cero con una serie vacía o sin ventas", () => {
   for (const values of [[], [0], [0, 0, 0]]) {
     const scale = chartScale(values, null);
@@ -106,7 +140,36 @@ test("la escala no divide por cero con una serie vacía o sin ventas", () => {
   }
 });
 
-import { changeText, clientReadable, pickFinding, shortMoney } from "./client-pulse-model";
+import { changeText, clientReadable, pickFinding, pickGoals, shortMoney, type GoalObjective } from "./client-pulse-model";
+
+const goal = (metric_key: string, over: Partial<GoalObjective> = {}): GoalObjective => ({
+  id: metric_key, metric_key, label: metric_key, unit: "money", direction: "up", target_value: 100, actual_value: 40, progress_pct: 40, period: "monthly", ...over,
+});
+
+test("pickGoals: el anillo prefiere ventas y no enseña metas sin cifra ni repetidas", () => {
+  const { main, others } = pickGoals([
+    goal("cac", { direction: "down" }),
+    goal("net_profit"),
+    goal("net_revenue_ex_tax"),
+    goal("net_profit", { id: "duplicada" }),
+    goal("roas", { actual_value: null, progress_pct: null }),
+  ]);
+  assert.equal(main?.metric_key, "net_revenue_ex_tax");
+  assert.deepEqual(others.map((item) => item.id), ["cac", "net_profit", "roas"]);
+});
+
+test("pickGoals: sin ventas medibles, la primera meta sin cumplir", () => {
+  const { main } = pickGoals([
+    goal("roas", { progress_pct: 100 }),
+    goal("net_revenue_ex_tax", { actual_value: null, progress_pct: null }),
+    goal("aov", { progress_pct: 60 }),
+  ]);
+  assert.equal(main?.metric_key, "aov");
+});
+
+test("pickGoals: una meta que se baja nunca va al anillo", () => {
+  assert.equal(pickGoals([goal("cac", { direction: "down" })]).main, null);
+});
 
 test("cada sección recibe su propio hallazgo y no repite el de otra", () => {
   const sales = { title: "Ventas netas de 48.596,60 € en 881 pedidos", severity: "info", evidence: "" };

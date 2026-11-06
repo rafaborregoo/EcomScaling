@@ -34,3 +34,6 @@ klaviyo-backup-codes.txt
 # Documento privado de colaboracion
 BASES_COLABORACION.md
 .e-nora-test-lab/
+
+# Producción de vídeo: se queda en local, entera
+/video/

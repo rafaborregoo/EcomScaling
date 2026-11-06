@@ -1,9 +1,12 @@
 import { createLogger } from "@e-nora/observability";
+import { createClient } from "@supabase/supabase-js";
+import WebSocket from "ws";
 import { type AuthContext, createUserScopedClient, membershipCoversStore } from "./auth-context.js";
 import { getCached, setCached } from "./redis-cache.js";
 import { createSwrCache } from "./swr-cache.js";
 import { integrationDataVersion } from "./integration-data-cache.js";
 import { resolveShopifyFinancialCurrencyCoverage, type ShopifyFinancialCurrencyCoverage } from "./shopify-financial-currency.js";
+import { assessShopifyFinancialComparability, type ShopifyFinancialComparability } from "./shopify-financial-comparability.js";
 import { resolveShopifyStoreScope } from "./shopify-store-scope.js";
 import { parseShopifyScopes } from "./shopify-permissions.js";
 
@@ -12,6 +15,7 @@ const logger = createLogger("api:shopify-metrics");
 type ApiEnv = {
   SUPABASE_URL: string;
   SUPABASE_PUBLISHABLE_KEY: string;
+  SUPABASE_SERVICE_ROLE_KEY?: string;
   REDIS_URL?: string;
 };
 
@@ -31,6 +35,7 @@ type ShopifyMetricsData = {
   store_id: string | null;
   currency_code: string | null;
   financial_currency_coverage: ShopifyFinancialCurrencyCoverage;
+  financial_comparability: ShopifyFinancialComparability;
   order_history: {
     earliest_imported_order_at: string | null;
     access_scope: "all_orders" | "last_60_days" | "unknown";
@@ -132,10 +137,14 @@ type ShopifyMetricsData = {
   previous_period: {
     period: { start: string; end: string };
     sales: ShopifyMetricsData["sales"];
-    financial: { net_profit: number; net_margin_pct: number; lines_without_metrics: number | null };
+    financial: { net_profit: number; net_margin_pct: number; lines_without_metrics: number | null; comparability: ShopifyFinancialComparability };
     // Pedidos entre sesiones del periodo anterior; null si ese periodo no
     // tiene sesiones sincronizadas (no se compara contra un cero inventado).
     conversion_rate_own: number | null;
+    // Serie diaria para comparar dia a dia: cada fila se alinea por posicion con
+    // `daily` (mismo numero de dias). Sin beneficio: `shopify_financial_daily`
+    // hace un resumen por dia y duplicarlo no compensa en el dashboard.
+    daily: Array<{ date: string; net_sales: number; orders_count: number; conversion_rate_own: number | null }>;
   } | null;
   // La misma ventana del ano anterior. Responde una pregunta distinta a
   // `previous_period`: en un negocio con temporada, agosto contra julio dice
@@ -283,6 +292,7 @@ function emptyMetricsData(
     store_id: storeId,
     currency_code: null,
     financial_currency_coverage: financialCurrencyCoverage,
+    financial_comparability: assessShopifyFinancialComparability({ organizationId, storeId, start: periodStart ?? new Date(NaN), end: periodEnd, financial: null, coverage: null }),
     order_history: {
       earliest_imported_order_at: null,
       access_scope: "unknown",
@@ -395,7 +405,7 @@ async function computeShopifyMetrics(
   // FE-02: comparacion contra el periodo anterior -- mismo numero de dias,
   // inmediatamente antes de `periodStart`. No aplica a "Todo" (no hay un
   // "periodo anterior" bien definido cuando se pide el historico completo).
-  const previousPeriodEnd = periodStart;
+  const previousPeriodEnd = periodStart ? new Date(periodStart.getTime() - 1) : null;
   const previousPeriodStart =
     periodDays === "all" || !periodStart
       ? null
@@ -444,6 +454,13 @@ async function computeShopifyMetrics(
         message: "Esta cuenta no tiene acceso a la tienda seleccionada.",
       };
     }
+    // After user-scoped store authorization, the coverage read needs the full
+    // organization store count; a store-limited RLS view could undercount it.
+    const financialCoverageClient = env.SUPABASE_SERVICE_ROLE_KEY
+      ? createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+          auth: { persistSession: false, autoRefreshToken: false }, realtime: { transport: WebSocket as any },
+        })
+      : null;
 
     const financialCurrencyCoverage = await resolveShopifyFinancialCurrencyCoverage(
       supabase,
@@ -525,7 +542,7 @@ async function computeShopifyMetrics(
     // El v4 incorpora moneda, alcance histórico y cobertura por tienda. Evita servir
     // respuestas antiguas cacheadas sin moneda tras desplegar este contrato.
     const version = await integrationDataVersion(env.REDIS_URL, organizationId);
-    const cacheKey = `shopify:metrics:v5:${organizationId}:${storeId}:${periodDays}:${version}`;
+    const cacheKey = `shopify:metrics:v7:${organizationId}:${storeId}:${periodDays}:${version}`;
     const cached = await getCached<ShopifyMetricsData>(env.REDIS_URL, cacheKey);
 
     if (cached) {
@@ -560,6 +577,10 @@ async function computeShopifyMetrics(
       yearAgoFinancialResult,
       previousFunnelResult,
       profitDailyResult,
+      financialCoverageResult,
+      previousFinancialCoverageResult,
+      previousDailyResult,
+      previousFunnelDailyResult,
     ] = await Promise.all([
       supabase.rpc("shopify_sales_summary", {
         target_organization_id: organizationId,
@@ -703,6 +724,34 @@ async function computeShopifyMetrics(
             target_store_id: storeId,
           })
         : Promise.resolve({ data: null, error: null }),
+      periodStart && storeId && financialCoverageClient
+        ? financialCoverageClient.rpc("shopify_financial_coverage", {
+            target_organization_id: organizationId, target_store_id: storeId,
+            period_start: periodStart.toISOString(), period_end: periodEnd.toISOString(),
+          })
+        : Promise.resolve({ data: null, error: null }),
+      previousPeriodStart && previousPeriodEnd && storeId && financialCoverageClient
+        ? financialCoverageClient.rpc("shopify_financial_coverage", {
+            target_organization_id: organizationId, target_store_id: storeId,
+            period_start: previousPeriodStart.toISOString(), period_end: previousPeriodEnd.toISOString(),
+          })
+        : Promise.resolve({ data: null, error: null }),
+      previousPeriodStart
+        ? supabase.rpc("shopify_sales_daily", {
+            target_organization_id: organizationId,
+            period_start: previousPeriodStart.toISOString(),
+            period_end: previousPeriodEnd!.toISOString(),
+            target_store_id: storeId,
+          })
+        : Promise.resolve({ data: null, error: null }),
+      previousPeriodStart
+        ? supabase.rpc("shopify_funnel_daily", {
+            target_organization_id: organizationId,
+            period_start: previousPeriodStart.toISOString(),
+            period_end: previousPeriodEnd!.toISOString(),
+            target_store_id: storeId,
+          })
+        : Promise.resolve({ data: null, error: null }),
     ]);
 
     if (salesResult.error) {
@@ -769,6 +818,13 @@ async function computeShopifyMetrics(
     if (profitDailyResult.error) {
       logger.error("shopify_financial_daily_failed", { organization_id: organizationId, error: profitDailyResult.error.message });
     }
+    // No fatales: sin ellas el grafico se queda sin linea de comparacion.
+    if (previousDailyResult.error) {
+      logger.error("shopify_sales_daily_previous_period_failed", { organization_id: organizationId, error: previousDailyResult.error.message });
+    }
+    if (previousFunnelDailyResult.error) {
+      logger.error("shopify_funnel_daily_previous_period_failed", { organization_id: organizationId, error: previousFunnelDailyResult.error.message });
+    }
 
     type DailyRow = { bucket_date: string; net_sales: number; orders_count: number };
     const profitByDate = new Map(
@@ -816,6 +872,11 @@ async function computeShopifyMetrics(
     };
 
     const financial = financialResult.data?.[0] ?? emptyFinancialData();
+    const financialComparability = assessShopifyFinancialComparability({
+      organizationId, storeId, start: periodStart ?? new Date(NaN), end: periodEnd,
+      financial: financialResult.data?.[0] ?? null, coverage: financialCoverageResult.data ?? null,
+      queryFailed: Boolean(financialResult.error || financialCoverageResult.error),
+    });
 
     const previousSales =
       !previousSalesResult.error && previousPeriodStart
@@ -825,6 +886,11 @@ async function computeShopifyMetrics(
       !previousFinancialResult.error && previousPeriodStart
         ? previousFinancialResult.data?.[0] ?? emptyFinancialData()
         : null;
+    const previousFinancialComparability = assessShopifyFinancialComparability({
+      organizationId, storeId, start: previousPeriodStart ?? new Date(NaN), end: previousPeriodEnd ?? new Date(NaN),
+      financial: previousFinancialResult.data?.[0] ?? null, coverage: previousFinancialCoverageResult.data ?? null,
+      queryFailed: Boolean(previousFinancialResult.error || previousFinancialCoverageResult.error),
+    });
 
     const previousMargin = !previousMarginResult.error && previousPeriodStart
       ? previousMarginResult.data?.[0] ?? null
@@ -837,6 +903,23 @@ async function computeShopifyMetrics(
       previousSales && Number(previousFunnelRow?.days_with_sessions) > 0 && previousSessions > 0
         ? (Number(previousSales.orders_count) || 0) / previousSessions
         : null;
+    const previousSessionsByDate = new Map<string, number>(
+      !previousFunnelDailyResult.error && Array.isArray(previousFunnelDailyResult.data)
+        ? (previousFunnelDailyResult.data as Array<{ bucket_date: string; sessions: number }>).map((row) => [row.bucket_date, Number(row.sessions) || 0])
+        : [],
+    );
+    const previousDaily = !previousDailyResult.error && Array.isArray(previousDailyResult.data)
+      ? (previousDailyResult.data as DailyRow[]).map((row) => {
+          const ordersCount = Number(row.orders_count) || 0;
+          const sessions = previousSessionsByDate.get(row.bucket_date) ?? 0;
+          return {
+            date: row.bucket_date,
+            net_sales: Number(row.net_sales) || 0,
+            orders_count: ordersCount,
+            conversion_rate_own: sessions > 0 ? ordersCount / sessions : null,
+          };
+        })
+      : [];
     const previousPeriod =
       previousPeriodStart && previousSales && previousFinancial
         ? {
@@ -845,11 +928,13 @@ async function computeShopifyMetrics(
             financial: {
               net_profit: previousFinancial.net_profit,
               net_margin_pct: previousFinancial.net_margin_pct,
+              comparability: previousFinancialComparability,
               lines_without_metrics: previousMargin && Number.isFinite(Number(previousMargin.lines_without_metrics))
                 ? Number(previousMargin.lines_without_metrics)
                 : null,
             },
             conversion_rate_own: previousConversion,
+            daily: previousDaily,
           }
         : null;
 
@@ -1012,6 +1097,7 @@ async function computeShopifyMetrics(
       store_id: storeId,
       currency_code: storeScope.currencyCode,
       financial_currency_coverage: financialCurrencyCoverage,
+      financial_comparability: financialComparability,
       order_history: orderHistory,
       period: {
         days: periodDays,
@@ -1069,7 +1155,7 @@ export async function getShopifyMetrics(
       get: (key) => getCached(env.REDIS_URL, key),
       set: (key, value, ttl) => setCached(env.REDIS_URL, key, value, ttl),
     },
-    key: `shopify:metrics:swr:v1:${context.user.id}:${organizationId}:${connectionId ?? "all"}:${daysInput ?? ""}`,
+    key: `shopify:metrics:swr:v2:${context.user.id}:${organizationId}:${connectionId ?? "all"}:${daysInput ?? ""}`,
     revision: version,
     freshSeconds: METRICS_CACHE_TTL_SECONDS,
     staleSeconds: METRICS_STALE_SECONDS,

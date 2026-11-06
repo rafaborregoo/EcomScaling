@@ -905,6 +905,10 @@ export const caminoTaskSchema = z.object({
    * platform_admin en vez de convertirlo en un paso para el cliente.
    */
   analysis_gap: z.string().trim().max(500).nullish(),
+  /** Al replanificar: la tarea existente que esta conserva. El servidor comprueba que exista. */
+  source_task_id: z.string().nullish(),
+  /** Al replanificar: por qué cambia respecto a la versión vigente. */
+  change_reason: z.string().nullish(),
 });
 
 export const caminoMilestoneSchema = z.object({
@@ -916,6 +920,10 @@ export const caminoMilestoneSchema = z.object({
   /** Por que este hito va ahora y no antes o despues. */
   rationale: z.string().default(""),
   tasks: z.array(caminoTaskSchema).default([]),
+  /** Al replanificar: el hito existente que este conserva. El servidor comprueba que exista. */
+  source_milestone_id: z.string().nullish(),
+  /** Al replanificar: por qué cambia respecto a la versión vigente. */
+  change_reason: z.string().nullish(),
 });
 
 export const caminoPhaseSchema = z.object({
@@ -941,6 +949,8 @@ export const caminoGoalSchema = z.object({
   monthly_targets: z.array(z.object({
     // Índice relativo al Camino, no el número de mes del calendario.
     month: z.number().int().min(1).max(13),
+    /** Mes natural real (YYYY-MM). Lo pone el servidor: sin él, el índice se desplaza con la fecha de inicio. */
+    period: z.string().regex(/^\d{4}-\d{2}$/).optional(),
     target_value: z.number().nullable(),
     seasonal_baseline: z.number().nullable().optional(),
     rationale: z.string(),
@@ -956,6 +966,8 @@ export const caminoGoalSchema = z.object({
   baseline_observed_at: z.string().optional(),
   target_date: z.string().optional(),
   horizon_end_date: z.string().optional(),
+  /** Desde qué día cuentan las ventas del primer mes. Lo pone el servidor al replanificar. */
+  measured_from: z.string().optional(),
   rationale: z.string(),
   assumptions: z.array(z.string()).default([]),
   confidence: z.enum(["low", "medium", "high"]),
@@ -973,6 +985,16 @@ export const caminoPlanOutputSchema = z.object({
   sources: z.array(agentSourceSchema),
   confidence: z.enum(["low", "medium", "high"]),
   warnings: z.array(z.string()),
+  /** Al replanificar: lo que deja de formar parte del plan y por qué. */
+  retired_items: z.array(z.object({ source_id: z.string(), reason: z.string() })).nullish(),
+  /** Versión de la que parte esta propuesta. La pone el servidor, nunca el modelo. */
+  replan_source: z.object({
+    plan_id: z.string(),
+    version: z.number().int(),
+    fingerprint: z.string(),
+    scopes: z.array(z.string()),
+    generated_on: z.string(),
+  }).optional(),
 });
 
 /** Refuerza en runtime que todos los offsets respetan el horizonte solicitado. */
@@ -1026,6 +1048,24 @@ export function caminoPlanSchemaForHorizon(horizonDays: number, horizonMonths?: 
 }
 
 export type CaminoPlanOutput = z.infer<typeof caminoPlanOutputSchema>;
+
+/** Fija cada meta mensual a su mes natural desde la fecha de generación. */
+export function anchorCaminoMonths(proposal: CaminoPlanOutput, referenceDate: Date): CaminoPlanOutput {
+  const targets = proposal.goal?.monthly_targets;
+  if (!proposal.goal || !targets?.length) return proposal;
+  const year = referenceDate.getUTCFullYear();
+  const month = referenceDate.getUTCMonth();
+  return {
+    ...proposal,
+    goal: {
+      ...proposal.goal,
+      monthly_targets: targets.map((target, index) => ({
+        ...target,
+        period: new Date(Date.UTC(year, month + index, 1)).toISOString().slice(0, 7),
+      })),
+    },
+  };
+}
 
 /** Reorders dated phases and minimally moves later milestones so the map reads chronologically. */
 export function normalizeCaminoTimeline(
@@ -1203,8 +1243,19 @@ export const caminoPlanJsonSchema = {
     "sources",
     "confidence",
     "warnings",
+    "retired_items",
   ],
   properties: {
+    retired_items: {
+      type: "array",
+      description: "Solo al replanificar: hitos o tareas abiertos del plan vigente que dejan de formar parte del plan, con su motivo. Vacío en cualquier otro caso.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["source_id", "reason"],
+        properties: { source_id: { type: "string" }, reason: { type: "string" } },
+      },
+    },
     horizon_months: { type: "integer", minimum: 1, maximum: 12, description: "Repite exactamente la duración solicitada por el usuario, en meses." },
     plan_name: {
       type: "string",
@@ -1312,8 +1363,12 @@ export const caminoPlanJsonSchema = {
                 "success_metric",
                 "rationale",
                 "tasks",
+                "source_milestone_id",
+                "change_reason",
               ],
               properties: {
+                source_milestone_id: { type: ["string", "null"], description: "Solo al replanificar: id literal del hito vigente que este conserva. null si es nuevo o no se replanifica." },
+                change_reason: { type: ["string", "null"], description: "Solo al replanificar: qué cambia respecto al hito vigente y por qué, con los datos que lo justifican. null si no cambia." },
                 name: { type: "string" },
                 description: { type: "string" },
                 target_offset_days: {
@@ -1337,8 +1392,10 @@ export const caminoPlanJsonSchema = {
                   items: {
                     type: "object",
                     additionalProperties: false,
-                    required: ["title", "description", "target_offset_days", "priority", "owner", "kind", "track", "cadence", "effort_hours", "definition_of_done", "evidence"],
+                    required: ["title", "description", "target_offset_days", "priority", "owner", "kind", "track", "cadence", "effort_hours", "definition_of_done", "evidence", "source_task_id", "change_reason"],
                     properties: {
+                      source_task_id: { type: ["string", "null"], description: "Solo al replanificar: id literal de la tarea vigente que esta conserva. null si es nueva o no se replanifica." },
+                      change_reason: { type: ["string", "null"], description: "Solo al replanificar: qué cambia respecto a la tarea vigente y por qué. null si no cambia." },
                       title: { type: "string" },
                       description: { type: "string", description: "Pasos concretos para hacerla, no un deseo." },
                       owner: { type: "string", enum: ["client", "consultant", "shared"], description: "client = equipo de la tienda, consultant = consultor, shared = los dos." },
@@ -2673,17 +2730,17 @@ export const metaAdsJsonSchema = {
   ],
   properties: {
     summary: { type: "string" },
-    campaign_name: { type: "string" },
-    ad_set_name: { type: "string" },
-    headline: { type: "string" },
-    primary_text: { type: "string" },
-    description: { type: "string" },
-    call_to_action: { type: "string" },
+    campaign_name: { type: "string", minLength: 1, maxLength: 160 },
+    ad_set_name: { type: "string", minLength: 1, maxLength: 160 },
+    headline: { type: "string", minLength: 1, maxLength: 255 },
+    primary_text: { type: "string", minLength: 1, maxLength: 5000 },
+    description: { type: "string", maxLength: 500 },
+    call_to_action: { type: "string", minLength: 1, maxLength: 80 },
     destination_url: { type: ["string", "null"] },
-    audience: { type: "string" },
-    locale: { type: "string" },
-    tone: { type: "string" },
-    creative_notes: { type: "array", items: { type: "string" } },
+    audience: { type: "string", minLength: 1, maxLength: 500 },
+    locale: { type: "string", minLength: 2, maxLength: 20 },
+    tone: { type: "string", minLength: 1, maxLength: 120 },
+    creative_notes: { type: "array", maxItems: 50, items: { type: "string", maxLength: 1000 } },
     compliance_notes: { type: "array", items: { type: "string" } },
     sources: {
       type: "array",
@@ -2755,16 +2812,16 @@ export const instagramPostJsonSchema = {
   ],
   properties: {
     summary: { type: "string" },
-    title: { type: "string" },
-    caption: { type: "string" },
-    hashtags: { type: "array", items: { type: "string" } },
-    call_to_action: { type: "string" },
+    title: { type: "string", minLength: 1, maxLength: 160 },
+    caption: { type: "string", minLength: 1, maxLength: 2200 },
+    hashtags: { type: "array", maxItems: 30, items: { type: "string", minLength: 1, maxLength: 100 } },
+    call_to_action: { type: "string", minLength: 1, maxLength: 80 },
     format: { type: "string", enum: ["feed", "carousel", "reel", "story"] },
-    creative_brief: { type: "string" },
-    audience: { type: "string" },
-    locale: { type: "string" },
-    tone: { type: "string" },
-    compliance_notes: { type: "array", items: { type: "string" } },
+    creative_brief: { type: "string", minLength: 1, maxLength: 2000 },
+    audience: { type: "string", minLength: 1, maxLength: 500 },
+    locale: { type: "string", minLength: 2, maxLength: 20 },
+    tone: { type: "string", minLength: 1, maxLength: 120 },
+    compliance_notes: { type: "array", maxItems: 50, items: { type: "string", maxLength: 1000 } },
     sources: {
       type: "array",
       items: {
@@ -2830,81 +2887,7 @@ export type InstagramImageAnalysis = z.infer<
   typeof instagramImageAnalysisSchema
 >;
 
-export const instagramImageAnalysisJsonSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: [
-    "description",
-    "objects",
-    "colors",
-    "style",
-    "composition",
-    "aspect_ratio_estimate",
-    "ocr_text",
-    "suggested_use",
-    "inferences",
-    "alt_text",
-    "confidence",
-    "visible_message",
-    "visible_call_to_action",
-    "design_findings",
-    "ocr_segments",
-  ],
-  properties: {
-    description: { type: "string" },
-    objects: { type: "array", items: { type: "string" } },
-    colors: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["label", "hex"],
-        properties: {
-          label: { type: "string" },
-          hex: { type: "string" },
-        },
-      },
-    },
-    style: { type: "string" },
-    composition: { type: "string" },
-    aspect_ratio_estimate: {
-      type: "string",
-      enum: ["portrait", "square", "landscape", "panoramic", "unclear"],
-    },
-    ocr_text: { type: "string" },
-    suggested_use: { type: "string" },
-    inferences: { type: "array", items: { type: "string" } },
-    alt_text: { type: "string" },
-    confidence: { type: "string", enum: ["low", "medium", "high"] },
-    visible_message: { type: "string", maxLength: 600 },
-    visible_call_to_action: { type: "string", maxLength: 240 },
-    design_findings: {
-      type: "array", maxItems: 12, items: {
-        type: "object", additionalProperties: false,
-        required: ["category", "evidence", "location", "severity", "recommendation", "confidence"],
-        properties: {
-          category: { type: "string", enum: ["legibility", "hierarchy", "cropping", "product_focus", "message", "cta", "contrast", "consistency", "other"] },
-          evidence: { type: "string", minLength: 1, maxLength: 400 },
-          location: { type: "string", maxLength: 160 },
-          severity: { type: "string", enum: ["low", "medium", "high"] },
-          recommendation: { type: "string", minLength: 1, maxLength: 400 },
-          confidence: { type: "string", enum: ["low", "medium", "high"] },
-        },
-      },
-    },
-    ocr_segments: {
-      type: "array", maxItems: 20, items: {
-        type: "object", additionalProperties: false,
-        required: ["text", "location", "legibility", "confidence"],
-        properties: {
-          text: { type: "string", maxLength: 500 }, location: { type: "string", maxLength: 160 },
-          legibility: { type: "string", enum: ["clear", "partial", "illegible"] },
-          confidence: { type: "string", enum: ["low", "medium", "high"] },
-        },
-      },
-    },
-  },
-} as const;
+export const instagramImageAnalysisJsonSchema = z.toJSONSchema(instagramImageAnalysisSchema);
 
 /**
  * Ficha markdown de una imagen del banco, lista para indexar como documento RAG.
@@ -2968,7 +2951,16 @@ export const instagramOverlayDraftSchema = z.object({
       z.object({
         text: z.string().min(1).max(220),
         role: z.enum(["kicker", "headline", "subheadline", "cta"]),
-        placement: z.enum(["top", "center", "bottom"]),
+        placement: z.enum([
+          "top-left", "top-center", "top-right",
+          "center-left", "center", "center-right",
+          "bottom-left", "bottom-center", "bottom-right",
+        ]),
+        position: z.object({
+          x_pct: z.number().int().min(0).max(90),
+          y_pct: z.number().int().min(0).max(96),
+          width_pct: z.number().int().min(10).max(90),
+        }),
         align: z.enum(["left", "center", "right"]),
         emphasis: z.enum(["normal", "strong"]),
       }),
@@ -2983,41 +2975,9 @@ export const instagramOverlayDraftSchema = z.object({
 
 export type InstagramOverlayDraft = z.infer<typeof instagramOverlayDraftSchema>;
 
-export const instagramOverlayDraftJsonSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["blocks", "palette", "rationale"],
-  properties: {
-    blocks: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["text", "role", "placement", "align", "emphasis"],
-        properties: {
-          text: { type: "string" },
-          role: {
-            type: "string",
-            enum: ["kicker", "headline", "subheadline", "cta"],
-          },
-          placement: { type: "string", enum: ["top", "center", "bottom"] },
-          align: { type: "string", enum: ["left", "center", "right"] },
-          emphasis: { type: "string", enum: ["normal", "strong"] },
-        },
-      },
-    },
-    palette: {
-      type: "object",
-      additionalProperties: false,
-      required: ["text_hex", "accent_hex"],
-      properties: {
-        text_hex: { type: "string" },
-        accent_hex: { type: "string" },
-      },
-    },
-    rationale: { type: "string" },
-  },
-} as const;
+export const instagramOverlayDraftJsonSchema = z.toJSONSchema(
+  instagramOverlayDraftSchema,
+);
 
 /** Removes active HTML capabilities before a generated draft is persisted. */
 export function sanitizeGeneratedEmailHtml(html: string) {
@@ -4863,6 +4823,7 @@ export function toAnthropicCompatibleOutputSchema(
     const result: Record<string, unknown> = {};
     const hints: string[] = [];
     for (const [key, child] of Object.entries(value)) {
+      if (key === "$schema") continue;
       if (unsupportedConstraints.has(key)) {
         const label = key === "minLength" ? "at least" : key === "maxLength" ? "at most" : null;
         if (key === "maxItems") hints.push(`Return no more than ${String(child)} array items.`);
@@ -4997,9 +4958,9 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
   /** Attach Anthropic's hosted web search when this agent must research current public sources. */
   webSearch?: boolean;
   /**
-   * Solo OpenAI (gpt-6-sol / gpt-6-luna): esfuerzo de razonamiento (por defecto
-   * none) y tope de tokens de salida, que incluye el razonamiento (por defecto
-   * 16000). El Camino pide razonamiento alto y un tope amplio.
+   * Esfuerzo de razonamiento y tope de tokens de salida, que incluye el
+   * razonamiento (por defecto 16000). El Camino pide razonamiento alto y un tope
+   * amplio. En Claude el tope solo sube y el esfuerzo se aplica desde la familia 5.
    */
   reasoningEffort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   maxCompletionTokens?: number;
@@ -5058,9 +5019,14 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     },
   ];
 
+  // El SDK exige streaming por encima de esto para no agotar la conexion HTTP.
+  const maxTokens = Math.max(16000, params.maxCompletionTokens ?? 16000);
+  const effort = params.reasoningEffort && params.reasoningEffort !== "none" && /^claude-(opus|sonnet|haiku)-5/.test(params.model)
+    ? params.reasoningEffort
+    : null;
   const requestBase = {
     model: params.model,
-    max_tokens: 16000,
+    max_tokens: maxTokens,
     system: [
       {
         type: "text" as const,
@@ -5069,6 +5035,7 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
       },
     ],
     output_config: {
+      ...(effort ? { effort } : {}),
       format: {
         type: "json_schema" as const,
         schema: toAnthropicCompatibleOutputSchema(outputContract.jsonSchema),
@@ -5098,14 +5065,27 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     ...DEFAULT_AGENT_RESILIENCE_POLICY,
     ...(params.resilience ?? {}),
   };
-  const createMessage = (
+  // Anthropic compila el esquema a una gramatica con limite de tamano y el del
+  // Camino no cabe: se pide por instruccion y se valida con el mismo contrato.
+  let schemaInPrompt = false;
+  const sendMessage = (
     requestMessages: Anthropic.MessageParam[],
-    withoutTools = false,
+    withoutTools: boolean,
   ) => {
-    const base = withoutTools ? requestWithoutTools(requestBase) : requestBase;
+    const tooled = withoutTools ? requestWithoutTools(requestBase) : requestBase;
+    const base = schemaInPrompt
+      ? {
+          ...tooled,
+          system: [
+            ...tooled.system,
+            { type: "text" as const, text: `Responde solo con un objeto JSON, sin markdown ni texto alrededor, que cumpla este JSON Schema:\n${JSON.stringify(requestBase.output_config.format.schema)}` },
+          ],
+          output_config: effort ? { effort } : {},
+        }
+      : tooled;
     return withAgentResilience(
       async (signal): Promise<Anthropic.Message> => {
-        if (params.onTextDelta) {
+        if (params.onTextDelta || maxTokens > 16000) {
           params.onTextReset?.();
           return await client.messages
             .stream({ ...base, messages: requestMessages }, { signal })
@@ -5120,6 +5100,18 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
       resiliencePolicy,
       { ...(params.signal ? { signal: params.signal } : {}) },
     );
+  };
+  const createMessage = async (
+    requestMessages: Anthropic.MessageParam[],
+    withoutTools = false,
+  ) => {
+    try {
+      return await sendMessage(requestMessages, withoutTools);
+    } catch (error) {
+      if (schemaInPrompt || !(error instanceof Anthropic.BadRequestError) || !error.message.includes("compiled grammar is too large")) throw error;
+      schemaInPrompt = true;
+      return await sendMessage(requestMessages, withoutTools);
+    }
   };
 
   const recordResponse = async (message: Anthropic.Message) => {
@@ -5154,8 +5146,19 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     }
   };
 
-  let response = await createMessage(messages);
-  await recordResponse(response);
+  // La busqueda web del servidor puede pausar el turno; se reanuda reenviando lo escrito.
+  const nextMessage = async (withoutTools = false) => {
+    let message = await createMessage(messages, withoutTools);
+    await recordResponse(message);
+    while (message.stop_reason === "pause_turn") {
+      messages.push({ role: "assistant", content: message.content });
+      message = await createMessage(messages, withoutTools);
+      await recordResponse(message);
+    }
+    return message;
+  };
+
+  let response = await nextMessage();
 
   while (response.stop_reason === "tool_use") {
     const isFinalRound = accounting.isFinalRound();
@@ -5198,8 +5201,7 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
         : toolResults,
     });
 
-    response = await createMessage(messages, isFinalRound);
-    await recordResponse(response);
+    response = await nextMessage(isFinalRound);
 
     if (isFinalRound) {
       break;
@@ -5230,7 +5232,8 @@ export async function runAgentTurn<TOutput = AgentOutput>(params: {
     throw new AgentOutputValidationError("agent_output_missing_text", "");
   }
 
-  const output = parseTurnOutput(textBlock.text, outputContract);
+  const text = schemaInPrompt ? textBlock.text.slice(textBlock.text.indexOf("{"), textBlock.text.lastIndexOf("}") + 1) : textBlock.text;
+  const output = parseTurnOutput(text, outputContract);
   if (params.webSearch && output && typeof output === "object") {
     const sources = (output as { sources?: unknown }).sources;
     if (Array.isArray(sources)) {

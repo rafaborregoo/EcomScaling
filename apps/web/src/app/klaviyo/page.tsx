@@ -9,7 +9,7 @@ import type { BootstrapResponse } from "@/lib/bootstrap";
 import { PortfolioAttention } from "@/components/portfolio-attention";
 import { KlaviyoAnalytics } from "./klaviyo-analytics";
 import r from "../shopify/legible.module.css";
-import { AiSpecialistItem } from "@/components/ai-diagnostic-section";
+import { AiDiagnosticSection, AiSpecialistItem } from "@/components/ai-diagnostic-section";
 import { A26_EMAIL_AUDIT } from "@/components/a26-email-audit";
 import {
   Accordion,
@@ -56,6 +56,20 @@ function KlaviyoView({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   return (
     <div className="portal-page grid gap-5 sm:gap-6">
+      <section id="analisis-email" aria-label="Análisis del rendimiento de email">
+        <AiDiagnosticSection
+          key={`a12:${organizationId}:${connectionId ?? "auto"}`}
+          organizationId={organizationId}
+          connectionIdOverride={connectionId || undefined}
+          title="A12 · Rendimiento de email"
+          description="Compara el último mes completo con el anterior: campañas, flujos, ingresos atribuidos y entregabilidad. Abrir esta página consulta el análisis guardado."
+          getPath="/ai/email-analyst"
+          runPath="/ai/email-analyst-run"
+          loadingLabel="Cargando el análisis de email de esta tienda…"
+          tasksLabelSingular="tarea"
+          variant={isConsultant ? "full" : "summary"}
+        />
+      </section>
       {/* Lo esencial del email: ingresos, tasas, fiabilidad, flujos y asuntos.
           Crear y programar vive en Marketing. */}
       <div className={`nora-min ${r.min}`}>
@@ -80,23 +94,6 @@ function KlaviyoView({ bootstrap }: { bootstrap: BootstrapResponse }) {
         organizationId={organizationId}
         connectionIdOverride={connectionId}
         {...A26_EMAIL_AUDIT}
-      />
-      <AiSpecialistItem
-        value="email"
-        organizationId={organizationId}
-        title="Análisis de email"
-        getPath="/ai/email-analyst"
-        runPath="/ai/email-analyst-run"
-        loadingLabel="Revisando el email marketing de esta tienda…"
-        tasksLabelSingular="tarea"
-        showInternals={isConsultant}
-        areas={{
-          rendimiento: {
-            label: "Ver el rendimiento",
-            href: "#klaviyo-rendimiento",
-          },
-          medicion: { label: "Ver medición", href: "#klaviyo-medicion" },
-        }}
       />
       <AiSpecialistItem
         value="flujos"

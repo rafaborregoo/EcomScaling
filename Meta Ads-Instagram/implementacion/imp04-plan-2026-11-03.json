@@ -1,0 +1,74 @@
+{
+  "create": [
+    {
+      "path": "conocimiento/meta-ads/01-rag-produccion/META-K01_activos_medicion_e_incidencias.md",
+      "title": "META-K01 — Activos, medición e incidencias verificables de Meta",
+      "to": "d4824d3e07ec78bcc4553de83cae629ff5b9fa8c9e87f5a175d40f0f22f75484"
+    },
+    {
+      "path": "conocimiento/meta-ads/01-rag-produccion/META-K02_investigacion_personas_y_evidencia_creativa.md",
+      "title": "META-K02 — Investigación creativa, personas y evidencia de fuentes",
+      "to": "d74c18382869ee46da5cfd58af2c030b4203c2c8f3f33c9aae56fe1d91d71317"
+    },
+    {
+      "path": "conocimiento/meta-ads/01-rag-produccion/META-K03_briefs_inventario_y_brechas_creativas.md",
+      "title": "META-K03 — Briefs, inventario y brechas creativas con evidencia",
+      "to": "53b5b3de2f617ccebda760f06d54cc21dfd943f92edf6fbac453bd643c201aea"
+    }
+  ],
+  "update": [
+    {
+      "id": "bfda1603-d3d7-4774-bff6-29b9e2099bd0",
+      "path": "conocimiento/fase-05/01-rag-produccion/5.01-playbooks-de-adquisicion-y-diversificacion.md",
+      "title": "FASE 5.01 — Playbooks de adquisición, demanda y diversificación",
+      "remoteTitle": "FASE 5.01 — Playbooks de adquisición, demanda y diversificación",
+      "from": "564d9d81a7d19963654757eed931ee0079803d0643b6edc46d2de770e73eb5a2",
+      "to": "fae255a317ebad260ac44f260baab848a8da3e81c63bea82f267b7a16f16b8db"
+    },
+    {
+      "id": "9812b91b-c551-49e3-9491-6f32b144105e",
+      "path": "conocimiento/fase-05/01-rag-produccion/5.02-estructura-audiencias-creative-y-testing.md",
+      "title": "FASE 5.02 — Estructura, audiencias, creative y testing",
+      "remoteTitle": "FASE 5.02 — Estructura, audiencias, creative y testing",
+      "from": "a5c548f68a3aac3b5b82bfaa2e974a731ad3dc288bfd0fc8b6e854b778d57bf3",
+      "to": "63903bbc8cc38872ef6be6df0b6c53b54f05bd3a2b1cdda2b87859f4d66cae1e"
+    },
+    {
+      "id": "5060259d-b6cf-46eb-8be1-f766988508c6",
+      "path": "conocimiento/fase-05/01-rag-produccion/5.02-atribucion-incrementalidad-calidad-y-madurez.md",
+      "title": "FASE 5.02 — Atribución, incrementalidad, calidad de cliente y madurez",
+      "remoteTitle": "FASE 5.02 — Atribución, incrementalidad, calidad de cliente y madurez",
+      "from": "24595ecd90bbc49dacdd93fe8343025d6fb0aba1603dac7b9890ca105d1cc0a5",
+      "to": "55c9a8bff31ea530eaf4cb4e6a454f309028c8df41b69c54b9e486abe744a677"
+    },
+    {
+      "id": "e3d752a0-464f-4f4b-96f7-aa4476cbdae9",
+      "path": "conocimiento/fase-05/01-rag-produccion/5.04-oferta-pricing-y-economics.md",
+      "title": "FASE 5.04 — Oferta, pricing y economics",
+      "remoteTitle": "FASE 5.04 — Oferta, pricing y economics",
+      "from": "5e75147bec6db16ec30536ad6f823406d6cf79df270dc2c07e7135fd91f6c8ee",
+      "to": "756ef2259d5254fe3c8359a159ac8ce85416e11ff702f559887756ddd0b2df6c"
+    },
+    {
+      "id": "805dcf02-433d-4c1a-9dd9-943d219cfc2e",
+      "path": "conocimiento/fase-05/01-rag-produccion/5.04-aov-bundles-cross-sell-y-ofertas-de-valor.md",
+      "title": "FASE 5.04 — AOV, bundles, cross-sell y ofertas de valor",
+      "remoteTitle": "FASE 5.04 — AOV, bundles, cross-sell y ofertas de valor",
+      "from": "9c630d68a669f5a9b8f441bd82a02220ca3d789c540d4b3519150e80375a5895",
+      "to": "4dbe6cad6e689494c7d7f385162495631115623216206540e6b98bf9aafd1623"
+    },
+    {
+      "id": "7103017c-e6ab-4219-88bb-b88558ee3ac0",
+      "path": "conocimiento/fase-05/01-rag-produccion/5.05-retencion-cohortes-ltv-y-economia-de-relacion.md",
+      "title": "FASE 5.05 — Retención, cohortes, LTV y economía de relación",
+      "remoteTitle": "FASE 5.05 — Retención, cohortes, LTV y economía de relación",
+      "from": "fe3236e7c051516b13452c7bf1be6d3feced0b4632d6e4665df61dfb749cf607",
+      "to": "39ff800dfcd1b35d5d47895d06c35d1e15daea02671cd87e4e97eb62addb8a12"
+    }
+  ],
+  "unchanged": [],
+  "archive": [],
+  "error": [],
+  "release_id": "IMP04-meta-v1",
+  "release_digest": "0841644e23182a75c00ec3c7d6550fd432abf590e0a7c10e596182473ae65658"
+}

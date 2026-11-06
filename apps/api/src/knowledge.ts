@@ -16,6 +16,7 @@ import {
 import type { LoadedApiEnv } from "@e-nora/config";
 import {
   requireOperationalOrganization,
+  requireOperationalStore,
   isOperationalOrganizationError,
   type AuthContext,
   createUserScopedClient,
@@ -160,6 +161,7 @@ export function requireKnowledgeManager(
   context: AuthContext,
   organizationId: string | null,
 ) {
+  if (!context.profile.is_active) return { ok: false as const, statusCode: 403, error: "profile_inactive" };
   // Conocimiento global = metodologia de la plataforma: solo platform admin.
   if (organizationId === null) {
     if (context.profile.platform_role !== "platform_admin") {
@@ -193,6 +195,21 @@ export function requireKnowledgeManager(
   }
 
   return { ok: true as const };
+}
+
+function authorizeKnowledgeDocument(context: AuthContext, document: {
+  organization_id: string | null; store_id: string | null; audience: string;
+}) {
+  if (!context.profile.is_active) return { ok: false as const, statusCode: 403, error: "profile_inactive" };
+  const internal = ["consultant", "platform_admin"].includes(context.profile.platform_role);
+  if ((document.audience === "consultant_only" && !internal) ||
+    (document.audience === "system_only" && context.profile.platform_role !== "platform_admin") ||
+    !["client_visible", "consultant_only", "system_only"].includes(document.audience)) {
+    return { ok: false as const, statusCode: 403, error: "knowledge_audience_denied" };
+  }
+  if (document.organization_id === null) return requireKnowledgeManager(context, null);
+  return document.store_id ? requireOperationalStore(context, document.organization_id, document.store_id)
+    : requireOperationalOrganization(context, document.organization_id);
 }
 
 /**
@@ -289,8 +306,6 @@ export async function createKnowledgeDocument(
     };
   }
 
-  const vectors = await embedChunksInOrder(chunks, embeddings.provider);
-
   const supabase = createServiceClient(env);
   let storeId: string | null = null;
   if (typeof payload.connection_id === "string" && payload.connection_id.trim()) {
@@ -312,6 +327,7 @@ export async function createKnowledgeDocument(
     }
     storeId = store.id;
   }
+  const vectors = await embedChunksInOrder(chunks, embeddings.provider);
   const checksum = crypto.createHash("sha256").update(content).digest("hex");
 
   const { data: createdDocuments, error: documentError } = await (supabase as any).rpc(
@@ -388,7 +404,7 @@ export async function updateKnowledgeDocument(
   context: AuthContext,
   organizationId: string,
   documentId: string,
-  payload: { content?: unknown },
+  payload: { content?: unknown; expected_version?: unknown; expected_checksum?: unknown },
 ) {
   const targetOrganizationId =
     organizationId === "global" ? null : organizationId;
@@ -421,13 +437,12 @@ export async function updateKnowledgeDocument(
     };
   }
 
-  const vectors = await embedChunksInOrder(chunks, embeddings.provider);
   const supabase = createServiceClient(env);
   const checksum = crypto.createHash("sha256").update(content).digest("hex");
 
   const existingQuery = supabase
     .from("knowledge_documents")
-    .select("id, version")
+    .select("id, version, organization_id, store_id, audience, checksum, embedding_model")
     .eq("id", documentId);
   const { data: existing, error: existingError } = await (
     targetOrganizationId === null
@@ -450,6 +465,18 @@ export async function updateKnowledgeDocument(
       error: "knowledge_document_not_found",
     };
   }
+
+  const documentAccess = authorizeKnowledgeDocument(context, existing);
+  if (!documentAccess.ok) return documentAccess;
+  if ((payload.expected_version !== undefined && (!Number.isSafeInteger(payload.expected_version) || Number(payload.expected_version) < 1)) ||
+    (payload.expected_checksum !== undefined && (typeof payload.expected_checksum !== "string" || !/^[a-f0-9]{64}$/.test(payload.expected_checksum)))) {
+    return { ok: false as const, statusCode: 400, error: "invalid_knowledge_revision" };
+  }
+  if ((payload.expected_version !== undefined && payload.expected_version !== existing.version) ||
+    (payload.expected_checksum !== undefined && payload.expected_checksum !== existing.checksum)) {
+    return { ok: false as const, statusCode: 409, error: "knowledge_document_version_conflict" };
+  }
+  const vectors = await embedChunksInOrder(chunks, embeddings.provider);
 
   const { data: replaced, error: replaceError } = await (supabase as any).rpc(
     "replace_knowledge_document_index",
@@ -522,6 +549,7 @@ export async function listKnowledgeDocuments(
   context: AuthContext,
   organizationId: string,
 ) {
+  if (!context.profile.is_active) return { ok: false as const, statusCode: 403, error: "profile_inactive" };
   // Centinela "global" (mismo que ya usa la ruta de creacion): el catalogo de
   // metodologia de plataforma, que vive en /admin/conocimiento y no cuelga de
   // ningun cliente. Es el unico caso en que este endpoint devuelve globales.
@@ -576,7 +604,7 @@ export async function listKnowledgeDocuments(
   // platform_admin (todas) y consultant (solo asignadas), asi que comprobar
   // solo `membership` es correcto y suficiente.
   if (
-    !context.memberships.some((item) => item.organization_id === organizationId)
+    ![...context.memberships, ...(context.storeMemberships ?? [])].some((item) => item.organization_id === organizationId)
   ) {
     return {
       ok: false as const,
@@ -660,7 +688,7 @@ export async function getKnowledgeDocument(
       };
     }
   } else if (
-    !context.memberships.some((item) => item.organization_id === organizationId)
+    ![...context.memberships, ...(context.storeMemberships ?? [])].some((item) => item.organization_id === organizationId)
   ) {
     return {
       ok: false as const,
@@ -673,7 +701,7 @@ export async function getKnowledgeDocument(
   const query = supabase
     .from("knowledge_documents")
     .select(
-      "id, organization_id, title, description, source_type, visibility, version, status, audience, content, created_at, updated_at",
+      "id, organization_id, store_id, title, description, source_type, visibility, version, status, audience, content, created_at, updated_at",
     )
     .eq("id", documentId);
 
@@ -693,6 +721,9 @@ export async function getKnowledgeDocument(
   if (!document) {
     return { ok: false as const, statusCode: 404, error: "knowledge_document_not_found" };
   }
+
+  const documentAccess = authorizeKnowledgeDocument(context, document);
+  if (!documentAccess.ok) return documentAccess;
 
   return { ok: true as const, data: { document } };
 }

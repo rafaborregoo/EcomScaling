@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import WebSocket from "ws";
 import type { LoadedApiEnv } from "@e-nora/config";
 import { requireOperationalOrganization, type AuthContext } from "./auth-context.js";
+import { authorizeAgentOutputScope } from "./agent-output-authorization.js";
 
 /**
  * Una propuesta de la IA, de solo lectura y con todo el detalle: que agente
@@ -25,7 +26,7 @@ const str = (value: unknown, max = 2000) =>
 
 const SUMMARY_KEYS = ["summary", "executive_summary", "headline", "diagnosis_summary", "overview"];
 
-export type ProposalStatus = "created" | "rejected" | "skipped" | "failed" | "pending";
+export type ProposalStatus = "created" | "retired" | "rejected" | "skipped" | "failed" | "pending";
 
 export async function getAgentOutputDetail(
   env: ApiEnv,
@@ -34,7 +35,7 @@ export async function getAgentOutputDetail(
   outputId: string,
 ) {
   const access = requireOperationalOrganization(context, organizationId);
-  if (access.ok === false) return access;
+  if (access.ok === false && !context.storeMemberships?.some((item) => item.organization_id === organizationId)) return access;
 
   const supabase = createServiceClient(env);
   const { data: output, error } = await supabase
@@ -46,21 +47,30 @@ export async function getAgentOutputDetail(
   if (error) return { ok: false as const, statusCode: 500, error: "agent_output_load_failed", detail: error.message };
   if (!output) return { ok: false as const, statusCode: 404, error: "agent_output_not_found" };
 
-  const [{ data: run }, { data: approval }] = await Promise.all([
-    supabase
+  const { data: run, error: runError } = await supabase
       .from("agent_runs")
-      .select("started_at, agent_versions(agent_definitions(name, description))")
+      .select("organization_id, store_id, objective, started_at, agent_versions(agent_definitions(code, name, description))")
       .eq("id", output.run_id)
-      .maybeSingle(),
-    supabase.from("agent_approvals").select("*").eq("output_id", outputId).maybeSingle(),
-  ]);
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+  if (runError) return { ok: false as const, statusCode: 503, error: "approval_scope_unavailable" };
+  if (!run) return { ok: false as const, statusCode: 404, error: "agent_output_not_found" };
 
   const versions = (run as { agent_versions?: unknown } | null)?.agent_versions;
   const version = (Array.isArray(versions) ? versions[0] : versions) as
-    | { agent_definitions?: { name?: string; description?: string | null } | Array<{ name?: string; description?: string | null }> }
+    | { agent_definitions?: { code?: string; name?: string; description?: string | null } | Array<{ code?: string; name?: string; description?: string | null }> }
     | undefined;
   const definitionRaw = version?.agent_definitions;
   const definition = Array.isArray(definitionRaw) ? definitionRaw[0] : definitionRaw;
+  const outputAccess = authorizeAgentOutputScope(context, organizationId, {
+    organization_id: run.organization_id, store_id: run.store_id ?? null,
+    agent_code: definition?.code ?? null, objective: run.objective ?? null,
+  });
+  if (!outputAccess.ok) return outputAccess;
+  const { data: approval, error: approvalError } = await supabase.from("agent_approvals")
+    .select("id, decision, decided_by, reason, reason_category, decided_at, decision_context")
+    .eq("organization_id", organizationId).eq("output_id", outputId).maybeSingle();
+  if (approvalError) return { ok: false as const, statusCode: 503, error: "approval_receipt_unavailable" };
 
   const body = (output.output ?? {}) as Record<string, unknown>;
   const writes = Array.isArray(body.proposed_writes) ? (body.proposed_writes as Array<Record<string, unknown>>) : [];
@@ -75,9 +85,10 @@ export async function getAgentOutputDetail(
   );
 
   const taskIds = [...decisions.values()].map((item) => item.task_id).filter((id): id is string => typeof id === "string");
-  const { data: tasks } = taskIds.length
-    ? await supabase.from("tasks").select("id, title, status").in("id", taskIds).eq("organization_id", organizationId)
-    : { data: [] as Array<{ id: string; title: string; status: string }> };
+  let taskQuery = taskIds.length ? supabase.from("tasks").select("id, title, status").in("id", taskIds).eq("organization_id", organizationId) : null;
+  if (taskQuery && run.store_id) taskQuery = taskQuery.eq("store_id", run.store_id);
+  const { data: tasks, error: taskError } = taskQuery ? await taskQuery : { data: [], error: null };
+  if (taskError) return { ok: false as const, statusCode: 503, error: "proposal_tasks_unavailable" };
   const taskById = new Map((tasks ?? []).map((task) => [task.id as string, task]));
 
   const proposals = writes.map((write, index) => {
@@ -86,7 +97,7 @@ export async function getAgentOutputDetail(
     const status: ProposalStatus =
       rawStatus === "created" || rawStatus === "link_failed"
         ? "created"
-        : rawStatus === "rejected"
+        : rawStatus === "retired" ? "retired" : rawStatus === "rejected"
           ? "rejected"
           : rawStatus === "skipped" || decision?.decision === "skipped" || skippedBeforeDecision.has(index)
             ? "skipped"
@@ -104,6 +115,7 @@ export async function getAgentOutputDetail(
     });
     return {
       index,
+      kind: write.kind === "note" ? "note" : "task",
       title: str(decision?.title, 255) ?? str(write.title, 255) ?? "Propuesta sin título",
       original_title: str(write.title, 255),
       description: str(decision?.description) ?? str(write.description),
@@ -115,7 +127,8 @@ export async function getAgentOutputDetail(
       owner_role: write.owner_role === "cliente" || write.owner_role === "consultor" ? write.owner_role : null,
       evidence,
       status,
-      task: taskId ? (taskById.get(taskId) ?? { id: taskId, title: null, status: null }) : null,
+      task: taskId ? (taskById.get(taskId) ?? null) : null,
+      note_id: typeof decision?.note_id === "string" ? decision.note_id : null,
     };
   });
 
@@ -133,7 +146,10 @@ export async function getAgentOutputDetail(
         .eq("is_active", true)
         .maybeSingle(),
     ]);
-    decidedBy = { name: (profile?.full_name as string | null) ?? null, side: member ? "client" : "consultant" };
+    const receiptContext = approvalRow?.decision_context as { actor_side?: unknown } | null;
+    decidedBy = { name: (profile?.full_name as string | null) ?? null,
+      side: receiptContext?.actor_side === "client" || receiptContext?.actor_side === "consultant"
+        ? receiptContext.actor_side : member ? "client" : "consultant" };
   }
 
   return {
@@ -149,6 +165,9 @@ export async function getAgentOutputDetail(
       summary: SUMMARY_KEYS.map((key) => str(body[key], 4000)).find(Boolean) ?? null,
       decision: approvalRow
         ? {
+            receipt_id: approvalRow.id,
+            source_verified: Boolean(approvalRow.decision_context && typeof approvalRow.decision_context === "object" &&
+              (approvalRow.decision_context as Record<string, unknown>).version === "agent-decision-v1"),
             decision: String(approvalRow.decision),
             decided_at: (approvalRow.decided_at as string | null) ?? null,
             decided_by: decidedBy,

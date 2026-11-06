@@ -8,6 +8,10 @@ import {
 
 const HOUR = 60 * 60 * 1000;
 
+test("A17 cerrado fija Sonnet por encima de preferencias antiguas", () => {
+  assert.equal(resolveAgentModel({ agentCode: "a17_plan_semanal", versionModel: "gpt-6-luna", clientModel: "gpt-6.1-sol", platformModel: "claude-opus-5-5" }), "claude-sonnet-5-5");
+});
+
 test("A01 cerrado usa el ID exacto de Sol aunque haya ajustes antiguos de plataforma o cliente", () => {
   assert.equal(
     defaultAgentModel("a01_analista_llamadas", "claude-sonnet-5"),
@@ -99,7 +103,7 @@ test("modelo de especialistas: plataforma > defecto; la preferencia del cliente 
       clientModel: null,
       platformModel: null,
     }),
-    "gpt-6-sol",
+    "claude-opus-5-5",
   );
 });
 

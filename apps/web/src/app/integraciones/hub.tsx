@@ -1,4 +1,5 @@
 "use client";
+import { A02Slot } from "@/components/a02-reading";
 
 
 // Hub de /integraciones: qué hay que arreglar primero, cada tienda con sus
@@ -1300,6 +1301,7 @@ export function IntegrationsHub({ bootstrap }: { bootstrap: BootstrapResponse })
 
       {welcomeStore ? <Banner tone="success">Tienda «{welcomeStore}» creada. Conéctala a Shopify, Meta y Klaviyo para empezar a ver sus datos.</Banner> : null}
       <ClientDataQualityNotice organizationId={organization?.id ?? null} />
+      {organization ? <A02Slot spot="integrations" organizationId={organization.id} connectionId={null} /> : null}
       {!payload.schema_ready ? <Banner tone="danger">No se pudo cargar el estado de las integraciones. Reintenta en unos minutos.</Banner> : null}
       {(scope?.unassigned_count ?? 0) > 0 ? (
         <Banner tone="warn">

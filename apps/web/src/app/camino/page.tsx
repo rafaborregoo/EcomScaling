@@ -1,11 +1,12 @@
 "use client";
+import { A02Slot } from "@/components/a02-reading";
 import type { LearningEdits } from "./learning-decision";
 import { MeasurementDetails, type MeasurementInfo } from "./measurement-details";
 import { ClosureSummary, type CaminoClosure } from "./closure-summary";
 import { DatePicker, Collapsible, CollapsibleContent, CollapsibleTrigger, SearchableSelect, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Item, ItemContent, ItemDescription, ItemTitle } from "@/components/ui";
 
 
-import { TargetIcon, Trash2Icon, UnlinkIcon } from "lucide-react";
+import { Trash2Icon, UnlinkIcon } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   FormEvent,
@@ -57,7 +58,11 @@ import { CaminoRoutesView, type CaminoRoute } from "./camino-routes-view";
 import { CAMINO_CURRENCIES, CaminoCreatePanel, metricOptions } from "./camino-create-panel";
 import { ACTIVE_CONNECTION_STORAGE_KEY } from "@/components/active-connection";
 import { CaminoProposalDecision, type StoredCaminoProposal } from "./proposal-decision";
-import { ConsultantCamino, MilestoneEditForm, PlanSettings } from "./camino-consultant";
+import { useCopilotAsk } from "@/components/copilot-ask";
+import { ConsultantCamino, MilestoneEditForm, PlanDanger, PlanSettings } from "./camino-consultant";
+import { MILESTONE_STATE_LABEL, milestoneState, milestoneTitle } from "./camino-desk-model";
+import { IndicatorCard, IndicatorSummary } from "./indicator-card";
+import i from "./camino-indicators.module.css";
 import { isPast } from "@/lib/elapsed";
 import { latestMarketingAssetByTask, marketingAssetHref, marketingAssetStatusLabel, type CaminoMarketingAsset } from "@/lib/camino-marketing-assets";
 import {
@@ -84,7 +89,6 @@ import {
   List,
   LoadingBlock,
   MoreIcon,
-  PencilIcon,
   PlusIcon,
   Progress,
   ProgressLabel,
@@ -92,7 +96,6 @@ import {
   Select,
   Textarea,
   toast,
-  type Tone,
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -139,6 +142,8 @@ type Milestone = {
   position: number;
   status: string;
   target_date: string | null;
+  deadline_date?: string | null;
+  measurement_date?: string | null;
   completed_at: string | null;
   completion_evidence?: string | null;
   created_by_origin?: CreatorOrigin;
@@ -163,6 +168,8 @@ type Plan = {
   description: string | null;
   horizon_months?: number | null;
   currency_code?: string | null;
+  /** Moneda en la que se muestra, con su tipo; los importes siguen en currency_code. */
+  display_fx?: { from: string; to: string; rate: number; rate_date: string } | null;
   goal?: {
     metric_key: string;
     metric_label: string;
@@ -182,6 +189,7 @@ type Plan = {
   status: string;
   version: number;
   starts_on: string | null;
+  replaces_plan_id?: string | null;
   completed_on: string | null;
   strategic_plan_phases: Phase[];
 };
@@ -190,6 +198,9 @@ type PlanResponse = {
   closures?: CaminoClosure[];
   organization_id: string;
   plan: Plan | null;
+  previous_plans?: Array<{ id: string; name: string; version: number; created_at: string }>;
+  replan_draft?: { generated_at: string } | null;
+  store_timezone?: string | null;
   weekly_reviews?: CaminoWeeklyReviewRecord[];
   marketing_assets?: CaminoMarketingAsset[];
   marketing_assets_available?: boolean;
@@ -241,6 +252,7 @@ type Objective = {
   measurement?: MeasurementInfo;
   id: string;
   milestone_id: string | null;
+  store_id?: string | null;
   metric_key: string;
   label: string;
   unit: ObjectiveCatalogEntry["unit"];
@@ -248,6 +260,7 @@ type Objective = {
   source: "shopify" | "meta" | "manual";
   target_value: number;
   period: string;
+  measurement_basis?: string;
   actual_value: number | null;
   progress_pct: number | null;
   status: "sin_datos" | "en_curso" | "cumplido";
@@ -275,16 +288,47 @@ function formatObjectiveValue(
   return value.toFixed(0);
 }
 
-function formatPlanGoalValue(
-  value: number,
-  goal: NonNullable<Plan["goal"]>,
-  // Moneda elegida para el camino; manda sobre la que informó la tienda.
-  currency: string,
-) {
-  return formatObjectiveValue(value, goal.unit, currency);
-}
-
 const CURRENCY_OPTIONS = CAMINO_CURRENCIES.map((code) => ({ value: code, label: code }));
+
+const rateDate = new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+const rateNumber = (rate: number) => rate.toLocaleString("es-ES", { maximumFractionDigits: 4 });
+
+/** Enseña el tipo y la fecha antes de confirmar: cambiar de moneda nunca es solo cambiar el símbolo. */
+function CurrencyDialog({ organizationId, planId, to, goalTarget, onCancel, onConfirm }: {
+  organizationId: string;
+  planId: string;
+  to: string;
+  goalTarget: number | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const quote = useCachedQuery<{ from: string; to: string; quote: { rate: number; rate_date: string } | null }>(
+    `/v1/organizations/${organizationId}/strategic-plan/${planId}/currency-quote?to=${to}`,
+  );
+  const data = quote.data;
+  return (
+    <AlertDialog open onOpenChange={(open) => { if (!open) onCancel(); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>¿Mostrar el plan en {to}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {quote.error
+              ? "El BCE no publica un tipo para esta moneda o no se pudo consultar. El camino sigue como está."
+              : !data
+                ? "Consultando el tipo del BCE…"
+                : data.quote
+                  ? `Se usa el tipo del BCE del ${rateDate.format(new Date(`${data.quote.rate_date}T00:00:00Z`))}: 1 ${data.from} = ${rateNumber(data.quote.rate)} ${to}.${goalTarget !== null ? ` ${formatObjectiveValue(goalTarget, "money", data.from)} se mostrarán como ${formatObjectiveValue(goalTarget * data.quote.rate, "money", to)}.` : ""} Los importes guardados y las ventas siguen en ${data.from}; ese tipo queda fijo hasta que vuelvas a cambiar la moneda.`
+                  : `Las cifras vuelven a mostrarse en ${data.from}, sin conversión.`}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction disabled={!data} onClick={onConfirm}>Cambiar moneda</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
 
 // Mensaje ya escrito al abrir el chat desde un hito: dice de qué hito se habla
 // y cómo va, para que la conversación arranque con contexto. Se puede editar.
@@ -310,18 +354,10 @@ type InternalNote = {
 };
 
 const PHASE_STATUS_LABELS: Record<string, string> = {
-  locked: "Bloqueada",
+  locked: "Pendiente",
   pending: "Pendiente",
-  active: "Activa",
+  active: "En curso",
   completed: "Completada",
-};
-
-const MILESTONE_STATUS_LABELS: Record<string, string> = {
-  locked: "Bloqueado",
-  pending: "Pendiente",
-  in_progress: "En curso",
-  completed: "Completado",
-  skipped: "Omitido",
 };
 
 const TASK_STATUS_LABELS: Record<string, string> = {
@@ -426,8 +462,8 @@ const NODE_STATE = {
     row: "border-separator",
   },
   active: {
-    node: "border-accent bg-accent-soft text-accent",
-    row: "border-accent bg-accent-soft",
+    node: "border-[var(--nora-purple)] bg-[var(--nora-purple-50)] text-accent",
+    row: "border-[var(--nora-purple)] bg-[var(--nora-purple-50)]",
   },
   idle: {
     node: "border-separator bg-white text-muted",
@@ -519,7 +555,7 @@ function TreeAddNode({
     <div className="relative flex items-center gap-3 py-1">
       <span
         aria-hidden
-        className="z-10 flex shrink-0 items-center justify-center rounded-full border border-accent bg-accent-soft text-accent"
+        className="z-10 flex shrink-0 items-center justify-center rounded-full border border-[var(--nora-purple)] bg-[var(--nora-purple-50)] text-accent"
         style={{ width: size, height: size }}
       >
         <PlusIcon aria-hidden />
@@ -677,6 +713,8 @@ function PhaseNode({
 function MilestoneNode({
   numberLabel,
   milestone,
+  phaseStatus,
+  planStatus,
   canManage,
   isFocus,
   isExpanded,
@@ -688,6 +726,8 @@ function MilestoneNode({
 }: {
   numberLabel: string;
   milestone: Milestone;
+  phaseStatus: string;
+  planStatus: string;
   canManage: boolean;
   isFocus: boolean;
   isExpanded: boolean;
@@ -697,6 +737,7 @@ function MilestoneNode({
   onAction: (action: "start" | "skip" | "edit") => void;
   handleProps?: Record<string, unknown>;
 }) {
+  const [today] = useState(() => new Date());
   const size = TREE_NODE_SIZE.milestone;
   const isDone = ["completed", "skipped"].includes(milestone.status);
   const state = nodeState(
@@ -751,7 +792,7 @@ function MilestoneNode({
       <div
         className={[
           "flex min-w-0 flex-1 flex-col gap-1 rounded-lg border px-2.5 py-2 sm:flex-row sm:items-center sm:gap-2.5",
-          isFocus ? "border-accent bg-accent-soft" : state.row,
+          isFocus ? "border-[var(--nora-purple)] bg-[var(--nora-purple-50)]" : state.row,
         ].join(" ")}
         aria-current={isFocus ? "step" : undefined}
       >
@@ -784,7 +825,7 @@ function MilestoneNode({
                 isDone ? "text-muted line-through" : "",
               ].join(" ")}
             >
-              {milestone.name}
+              {milestoneTitle(milestone.name)}
             </span>
             <Chevron
               className="shrink-0 text-[0.6rem] text-muted"
@@ -797,8 +838,8 @@ function MilestoneNode({
           {/* La fecha objetivo sube a la fila: era el dato que obligaba a
               desplegar cada hito uno a uno para saber si el plan va tarde. */}
           <span className="shrink-0 text-[0.65rem] text-muted">
-            {MILESTONE_STATUS_LABELS[milestone.status] ?? milestone.status}
-            {milestone.target_date ? ` · ${milestone.target_date}` : ""}
+            {MILESTONE_STATE_LABEL[milestoneState(milestone, phaseStatus, planStatus, today)]}
+            {milestone.target_date ? ` · ${new Date(`${milestone.target_date.slice(0, 10)}T00:00:00`).toLocaleDateString("es-ES", { day: "numeric", month: "short" }).replace(".", "")}` : ""}
             {taskCount ? ` · ${taskCount} tareas` : ""}
           </span>
           {canManage ? (
@@ -1343,175 +1384,6 @@ function MilestoneInternalNotes({
   );
 }
 
-// Objetivos de negocio y su progresion (peticion de Rafa 2026-08-27: Mi
-// Camino no es onboarding, es donde consultor y cliente ven objetivos y
-// cuanto se ha avanzado). El "real" siempre viene calculado por el backend
-// contra los ultimos 30 dias -- aqui solo se pinta lo que devuelve
-// /objectives, ningun calculo de metricas se duplica en el cliente.
-function ObjectiveCard({
-  objective,
-  currency,
-  milestoneLabel,
-  canManage,
-  isRemoving,
-  isSavingActual,
-  onRemove,
-  onSetActual,
-}: {
-  objective: Objective;
-  currency: string;
-  milestoneLabel: string | null;
-  canManage: boolean;
-  isRemoving: boolean;
-  isSavingActual: boolean;
-  onRemove: () => void;
-  onSetActual: (value: number) => void;
-}) {
-  const statusInfo: Record<Objective["status"], { label: string; tone: Tone }> =
-    {
-      cumplido: { label: "Cumplido", tone: "success" },
-      en_curso: { label: "En curso", tone: "brand" },
-      sin_datos: { label: "Sin datos", tone: "neutral" },
-    };
-  const info = statusInfo[objective.status];
-  const progress = objective.progress_pct;
-  // Objetivo de valor manual: el "actual" lo teclea el consultor aqui mismo,
-  // no sale de ninguna metrica de plataforma.
-  const isManual = objective.source === "manual";
-  const [isEditingActual, setIsEditingActual] = useState(false);
-  const [actualDraft, setActualDraft] = useState(
-    objective.actual_value !== null ? String(objective.actual_value) : "",
-  );
-
-  return (
-    <article className={s.objectiveRow}>
-      <div className={s.objectiveIdentity}>
-        <div>
-          <h3 className={s.objectiveName}>{objective.label}</h3>
-          <MeasurementDetails measurement={objective.measurement} source={objective.source === "manual" ? "Manual" : objective.source === "meta" ? "Meta Ads" : "Shopify"} />
-          <p className={s.objectivePeriod}>
-            {OBJECTIVE_PERIOD_LABELS[objective.period] ?? objective.period}
-            {isManual ? " · Manual" : " · Indicador conectado"}
-            {milestoneLabel ? ` · ${milestoneLabel}` : " · Sin hito"}
-          </p>
-        </div>
-        <Badge tone={info.tone}>{info.label}</Badge>
-      </div>
-      <div className={s.objectiveMeasure}>
-      {isManual && isEditingActual ? (
-        <form
-          className={s.objectiveActualForm}
-          onSubmit={(event) => {
-            event.preventDefault();
-            const value = Number(actualDraft);
-            if (!Number.isFinite(value) || value < 0) return;
-            onSetActual(value);
-            setIsEditingActual(false);
-          }}
-        >
-          <Field label="Valor actual">
-            <Input
-              className="mt-1 w-36"
-              type="number"
-              step="0.01"
-              min="0"
-              autoFocus
-              value={actualDraft}
-              onChange={(event) => setActualDraft(event.target.value)}
-              required
-            />
-          </Field>
-          <Button type="submit" size="sm" disabled={isSavingActual}>
-            {isSavingActual ? "Guardando..." : "Guardar"}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={() => setIsEditingActual(false)}
-          >
-            Cancelar
-          </Button>
-        </form>
-      ) : (
-        <div className={s.objectiveValueLine}>
-          <p className={s.objectiveValue}>
-            {objective.actual_value !== null
-              ? formatObjectiveValue(objective.actual_value, objective.unit, currency)
-              : "—"}
-          </p>
-          <p className={s.objectiveTarget}>
-            de {formatObjectiveValue(objective.target_value, objective.unit, currency)}{" "}
-            objetivo
-          </p>
-          {isManual && canManage ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="ml-auto min-h-8 min-w-8 px-2 pointer-coarse:min-w-11"
-              aria-label={
-                objective.actual_value !== null
-                  ? "Editar valor actual"
-                  : "Añadir valor actual"
-              }
-              onClick={() => {
-                setActualDraft(
-                  objective.actual_value !== null
-                    ? String(objective.actual_value)
-                    : "",
-                );
-                setIsEditingActual(true);
-              }}
-            >
-              {objective.actual_value !== null ? (
-                <PencilIcon aria-hidden />
-              ) : (
-                <PlusIcon aria-hidden />
-              )}
-            </Button>
-          ) : null}
-        </div>
-      )}
-      {progress !== null ? (
-        <Progress value={Math.min(100, progress)} aria-label={`Progreso de ${objective.label}`} className={s.objectiveProgress} />
-      ) : (
-        <p className={s.objectiveNoData}>
-          {isManual
-            ? "Introduce el valor actual para ver el progreso."
-            : "Sin datos todavía para esta métrica en los últimos 30 días."}
-        </p>
-      )}
-      {canManage ? (
-        <AlertDialog>
-          <AlertDialogTrigger
-            render={
-              <Button className={s.objectiveRemove} size="sm" variant="ghost" disabled={isRemoving}>
-                {isRemoving ? "Quitando..." : "Quitar objetivo"}
-              </Button>
-            }
-          />
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogMedia className="bg-danger/10 text-danger">
-                <TargetIcon />
-              </AlertDialogMedia>
-              <AlertDialogTitle>¿Quitar el objetivo «{objective.label}»?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Deja de medirse en el Camino y en el panel. Se avisa a la otra parte y la IA revisa el Camino con el cambio.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-              <AlertDialogAction variant="destructive" onClick={onRemove}>Quitar objetivo</AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      ) : null}
-      </div>
-    </article>
-  );
-}
-
 // Borrar un hito o el Camino entero se pide desde dos sitios cada uno (árbol
 // de estructura y mesa del Camino): el mismo diálogo de alerta en ambos.
 type DeleteDialogProps = {
@@ -1738,7 +1610,8 @@ function GoalTargetDialog({
   isOpen,
   organizationId,
   planId,
-  currentTarget,
+  currentTarget: storedTarget,
+  rate = 1,
   label,
   onClose,
   onSaved,
@@ -1747,10 +1620,13 @@ function GoalTargetDialog({
   organizationId: string;
   planId: string;
   currentTarget: number | null;
+  /** Tipo con el que se muestra: lo tecleado se guarda en la moneda original. */
+  rate?: number;
   label: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const currentTarget = storedTarget === null ? null : Math.round(storedTarget * rate * 100) / 100;
   const [target, setTarget] = useState("");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -1775,14 +1651,14 @@ function GoalTargetDialog({
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ target: value, reason: reason.trim() || undefined }),
+          body: JSON.stringify({ target: value / rate, reason: reason.trim() || undefined }),
         },
       );
       if (!response.ok) {
         setError(await readApiError(response));
         return;
       }
-      toast.success("Meta cambiada. La IA revisará el Camino y te avisará si propone ajustes.");
+      toast.success("Meta cambiada. NORA revisará el Camino y te avisará si propone ajustes.");
       onSaved();
       onClose();
     } catch {
@@ -1832,12 +1708,15 @@ function ObjectivesPanel({
   objectivesQuery,
   milestones,
   currency,
+  rate,
   connectionId,
   canManage,
   variant,
 }: {
   organizationId: string;
   currency: string;
+  /** Tipo con el que se muestran los importes: los guardados no cambian. */
+  rate: number;
   connectionId?: string | null;
   // La consulta vive en PlanContent: la misma respuesta alimenta el mapa.
   objectivesQuery: ReturnType<typeof useCachedQuery<ObjectivesResponse>>;
@@ -1874,6 +1753,7 @@ function ObjectivesPanel({
           : null) ?? null;
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [savingActualId, setSavingActualId] = useState<string | null>(null);
+  const ask = useCopilotAsk();
 
   const load = useCallback(() => {
     setActionError(null);
@@ -1892,14 +1772,17 @@ function ObjectivesPanel({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            ...payload,
+            targetValue: data?.catalog.find((entry) => entry.key === payload.metricKey)?.unit === "money" ? payload.targetValue / rate : payload.targetValue,
+          }),
         },
       );
       if (!response.ok) {
         setError(await readApiError(response));
         return false;
       }
-      toast.success("Objetivo guardado. La IA revisará el Camino y avisará si propone ajustes.");
+      toast.success("Objetivo guardado. NORA revisará el Camino y avisará si propone ajustes.");
       load();
       return true;
     } catch {
@@ -1924,6 +1807,23 @@ function ObjectivesPanel({
       setError("No se pudo quitar el objetivo. Reintenta.");
     } finally {
       setRemovingId(null);
+    }
+  }
+
+  async function saveObjectiveChange(id: string, path: string, init: RequestInit, fallback: string, success: string) {
+    setSavingActualId(id);
+    try {
+      const response = await apiFetch(path, { ...init, headers: { "Content-Type": "application/json" } });
+      if (!response.ok) {
+        setError(await readApiError(response));
+        return;
+      }
+      toast.success(success);
+      load();
+    } catch {
+      setError(fallback);
+    } finally {
+      setSavingActualId(null);
     }
   }
 
@@ -1960,7 +1860,8 @@ function ObjectivesPanel({
     >
       <header className={s.objectivesHeader}>
         <div>
-          <h2 id="business-objectives-title">Objetivos del camino</h2>
+          <h2 id="business-objectives-title">Indicadores del plan</h2>
+          {data?.objectives.length ? <IndicatorSummary objectives={data.objectives} /> : null}
         </div>
         {canManage ? (
           <Button
@@ -1970,7 +1871,7 @@ function ObjectivesPanel({
             onClick={() => setIsAdding(true)}
           >
             <PlusIcon aria-hidden />
-            Añadir objetivo
+            Nuevo objetivo
           </Button>
         ) : null}
       </header>
@@ -1988,12 +1889,15 @@ function ObjectivesPanel({
           <LoadingBlock label="Cargando objetivos..." />
         </div>
       ) : data && data.objectives.length > 0 ? (
-        <div className={s.objectiveRows}>
+        <div className={i.grid}>
           {data.objectives.map((objective) => (
-            <ObjectiveCard
+            <IndicatorCard
               key={objective.id}
               objective={objective}
-              currency={currency}
+              format={(value) => formatObjectiveValue(objective.unit === "money" ? value * rate : value, objective.unit, currency).replace(/,00(?=\s|$)/, "")}
+              rate={rate}
+              milestones={milestones}
+              organizationId={organizationId}
               milestoneLabel={
                 objective.milestone_id
                   ? (milestoneLabels.get(objective.milestone_id) ?? "Hito de otro camino")
@@ -2001,19 +1905,47 @@ function ObjectivesPanel({
               }
               canManage={canManage}
               isRemoving={removingId === objective.id}
-              isSavingActual={savingActualId === objective.id}
+              isSaving={savingActualId === objective.id}
               onRemove={() => void removeObjective(objective.id)}
               onSetActual={(value) =>
                 void setObjectiveActual(objective.id, value)
               }
+              onSetTarget={(value) =>
+                void saveObjectiveChange(
+                  objective.id,
+                  `/v1/organizations/${organizationId}/objectives`,
+                  {
+                    method: "POST",
+                    body: JSON.stringify({
+                      metricKey: objective.metric_key,
+                      targetValue: objective.unit === "money" ? value / rate : value,
+                      period: objective.period,
+                      storeId: objective.store_id,
+                      milestoneId: objective.milestone_id,
+                    }),
+                  },
+                  "No se pudo cambiar el objetivo. Reintenta.",
+                  "Objetivo cambiado. NORA revisará el Camino y avisará si propone ajustes.",
+                )
+              }
+              onLink={(milestoneId) =>
+                void saveObjectiveChange(
+                  objective.id,
+                  `/v1/organizations/${organizationId}/objectives/${objective.id}/milestone`,
+                  { method: "PATCH", body: JSON.stringify({ milestoneId }) },
+                  "No se pudo vincular el indicador. Reintenta.",
+                  milestoneId ? "Indicador vinculado al hito." : "Indicador vinculado a todo el plan.",
+                )
+              }
+              onAsk={(question, focusLabel) => ask({ question, focusLabel })}
             />
           ))}
         </div>
       ) : (
         <p className={s.objectiveEmpty}>
           {canManage
-            ? "Sin objetivos. Añade el primero con «+ Objetivo»."
-            : "Todavía no hay objetivos para este negocio."}
+            ? "Sin indicadores. Añade el primero con «Nuevo objetivo»."
+            : "Todavía no hay indicadores para este negocio."}
         </p>
       )}
 
@@ -2222,6 +2154,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   const routesQuery = useCachedQuery<{ routes: CaminoRoute[] }>(
     organizationId && !connectionId ? `/v1/organizations/${organizationId}/strategic-plan/routes` : null,
   );
+  const [pendingCurrency, setPendingCurrency] = useState<string | null>(null);
   const objectivesQuery = useCachedQuery<ObjectivesResponse>(
     organizationId
       ? `/v1/organizations/${organizationId}/objectives${connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : ""}`
@@ -2443,6 +2376,13 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     setCompletionMilestone(milestone);
   }
 
+  function closeByException(milestone: Milestone) {
+    setCompletionAction("completed");
+    setCompletionMode("exception");
+    setCompletionEvidence("");
+    setCompletionMilestone(milestone);
+  }
+
   async function confirmMilestoneCompletion(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!completionMilestone) return;
@@ -2471,6 +2411,24 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
       task.status === "completed"
         ? "Tarea reabierta."
         : "Tarea marcada como hecha.",
+    );
+  }
+
+  function setTaskStatus(taskId: string, status: string, success: string, reason?: string) {
+    if (!organization) return Promise.resolve(false);
+    return submitPlanMutation(
+      `/v1/organizations/${organization.id}/tasks/${taskId}/status`,
+      { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status, reason }) },
+      success,
+    );
+  }
+
+  function assignTask(taskId: string, userId: string | null) {
+    if (!organization) return;
+    void submitPlanMutation(
+      `/v1/organizations/${organization.id}/tasks/${taskId}/assignment`,
+      { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assignedTo: userId }) },
+      userId ? "Responsable principal guardado." : "Tarea sin responsable principal.",
     );
   }
 
@@ -2554,7 +2512,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
 
   async function editMilestone(
     milestoneId: string,
-    payload2: { name: string; description: string; targetDate: string; successCriteria?: string; rationale?: string },
+    payload2: { name: string; description: string; targetDate: string; deadlineDate?: string; measurementDate?: string; successCriteria?: string; rationale?: string },
   ) {
     if (!organization) return;
     return submitPlanMutation(
@@ -2566,6 +2524,8 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           name: payload2.name,
           description: payload2.description || null,
           targetDate: payload2.targetDate || null,
+          ...(payload2.deadlineDate !== undefined ? { deadlineDate: payload2.deadlineDate || null } : {}),
+          ...(payload2.measurementDate !== undefined ? { measurementDate: payload2.measurementDate || null } : {}),
           ...(payload2.successCriteria !== undefined ? { successCriteria: payload2.successCriteria || null } : {}),
           ...(payload2.rationale !== undefined ? { rationale: payload2.rationale || null } : {}),
         }),
@@ -2721,8 +2681,13 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   // el texto según quién mira, y las notas internas son solo del consultor.
   const desk = Boolean(plan);
 
-  const planCurrency =
+  const amountsCurrency =
     plan?.currency_code ?? plan?.goal?.currency_code ?? organization?.currency_code ?? "EUR";
+  const planCurrency = plan?.display_fx?.to ?? amountsCurrency;
+  const fxRate = plan?.display_fx?.rate ?? 1;
+  const shownObjective = (value: number, unit: ObjectiveCatalogEntry["unit"]) =>
+    formatObjectiveValue(unit === "money" ? value * fxRate : value, unit, planCurrency);
+  const shownGoal = (value: number) => (plan?.goal ? shownObjective(value, plan.goal.unit) : String(value));
 
   async function changePlanCurrency(currencyCode: string) {
     if (!organizationId || !plan) return;
@@ -2792,8 +2757,8 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <Card>
               <CardHeader>
                 <CardKicker>{desk ? undefined : `v${plan.version}${plan.horizon_months ? ` · ${plan.horizon_months} ${plan.horizon_months === 1 ? "mes" : "meses"}` : ""} · ${displayValue(plan.status)}`}</CardKicker>
-                <CardTitle>{desk ? "Fases e hitos" : plan.name}</CardTitle>
-                <CardDescription>{desk ? "Arrastra fases e hitos para reordenarlos. Cada fase se abre al cerrar todos los hitos de la anterior." : (plan.description ?? undefined)}</CardDescription>
+                <CardTitle>{desk ? "Estructura de fases" : plan.name}</CardTitle>
+                <CardDescription>{desk ? "Arrastra fases e hitos para reordenarlos, o usa Espacio y las flechas sobre su asa. Cada fase se abre al cerrar los hitos de la anterior." : (plan.description ?? undefined)}</CardDescription>
                 <CardAction>{desk ? undefined : (
                 <div className="flex items-center gap-2">
                   {canManage ? (
@@ -2801,7 +2766,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                       className="w-24"
                       aria-label="Moneda del camino"
                       value={planCurrency}
-                      onChange={(value) => void changePlanCurrency(value)}
+                      onChange={(value) => setPendingCurrency(value === planCurrency ? null : value)}
                       options={
                         CURRENCY_OPTIONS.some((option) => option.value === planCurrency)
                           ? CURRENCY_OPTIONS
@@ -2837,14 +2802,15 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                         organizationId={organizationId}
                         planId={plan.id}
                         currentTarget={plan.goal.target}
+                        rate={fxRate}
                         label={`${plan.goal.metric_label}${plan.goal.unit === "money" ? ` (${planCurrency})` : plan.goal.unit === "pct" ? " (%)" : ""}`}
                         onClose={() => setIsEditingGoal(false)}
                         onSaved={() => void loadPlan(true)}
                       />
                     ) : null}
                     <p className="mt-1 text-sm font-semibold">
-                      {plan.goal.metric_label}: {plan.goal.baseline === null ? "baseline no disponible" : formatPlanGoalValue(plan.goal.baseline, plan.goal, planCurrency)}
-                      {plan.goal.target === null ? " → objetivo sin cuantificar" : ` → ${formatPlanGoalValue(plan.goal.target, plan.goal, planCurrency)}`}
+                      {plan.goal.metric_label}: {plan.goal.baseline === null ? "baseline no disponible" : shownGoal(plan.goal.baseline)}
+                      {plan.goal.target === null ? " → objetivo sin cuantificar" : ` → ${shownGoal(plan.goal.target)}`}
                     </p>
                     {plan.goal.baseline_window_days ? (
                       <p className="mt-1 text-xs text-muted">
@@ -3055,6 +3021,8 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                                                 {(milestoneHandle) => (
                                                   <>
                                                     <MilestoneNode
+                                                      phaseStatus={phase.status}
+                                                      planStatus={plan.status}
                                                       numberLabel={`${phase.position}.${milestoneIndex + 1}`}
                                                       milestone={milestone}
                                                       canManage={canManage}
@@ -3359,12 +3327,12 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         <Dialog open={Boolean(completionMilestone)} onOpenChange={(open) => { if (!open) setCompletionMilestone(null); }} busy={isCompletingMilestone} dirty={Boolean(completionEvidence)}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>{completionMilestone ? `Verificar hito: ${completionMilestone.name}` : "Verificar hito"}</DialogTitle>
+              <DialogTitle>{`${completionAction === "skipped" ? "Omitir hito" : completionMode === "exception" ? "Cerrar por excepción" : "Verificar hito"}${completionMilestone ? `: ${completionMilestone.name}` : ""}`}</DialogTitle>
             </DialogHeader>
             <form id="complete-camino-milestone" className="space-y-4" onSubmit={confirmMilestoneCompletion}>
               <p className="text-sm">Criterio: {completionMilestone?.success_criteria || "Describe qué resultado se ha conseguido y cómo se comprobó."}</p>
               {completionPending.length ? (
-                <p className="text-sm">Quedan tareas pendientes: {completionPending.map((link) => link.tasks?.title ?? "Tarea sin datos").join(", ")}.</p>
+                <p className="text-sm">{completionAction === "completed" && completionMode === "verify" ? "Para verificar faltan estas tareas" : "Estas tareas seguirán abiertas"}: {completionPending.map((link) => link.tasks?.title ?? "Tarea sin datos").join(", ")}.</p>
               ) : null}
               <Field label="Tipo de cierre"><Select value={completionAction === "skipped" ? "skipped" : completionMode} onChange={(value) => { setCompletionAction(value === "skipped" ? "skipped" : "completed"); setCompletionMode(value === "exception" ? "exception" : "verify"); }} options={[{ value: "verify", label: "Verificar resultado" }, { value: "exception", label: "Cerrar por excepción (no acredita el resultado)" }, { value: "skipped", label: "Omitir hito con motivo" }]} /></Field>
               <p className="text-sm text-muted">Los objetivos asociados se comprobarán con datos al verificar. Una excepción o una omisión no acreditan que el objetivo se haya logrado.</p>
@@ -3379,11 +3347,25 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             </form>
             <DialogFooter>
               <DialogClose>Cancelar</DialogClose>
-              <Button type="submit" form="complete-camino-milestone" disabled={isCompletingMilestone || evidenceLength < 20 || evidenceLength > 2000 || completionAction !== "skipped" && completionPending.length > 0}>{isCompletingMilestone ? "Completando…" : "Completar hito"}</Button>
+              <Button type="submit" form="complete-camino-milestone" disabled={isCompletingMilestone || evidenceLength < 20 || evidenceLength > 2000 || (completionAction === "completed" && completionMode === "verify" && completionPending.length > 0)}>{isCompletingMilestone ? "Guardando…" : completionAction === "skipped" ? "Omitir hito" : completionMode === "exception" ? "Cerrar por excepción" : "Completar hito"}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
   );
+
+  const currencyDialog = organizationId && plan && pendingCurrency ? (
+    <CurrencyDialog
+      organizationId={organizationId}
+      planId={plan.id}
+      to={pendingCurrency}
+      goalTarget={plan.goal?.unit === "money" ? plan.goal.target : null}
+      onCancel={() => setPendingCurrency(null)}
+      onConfirm={() => {
+        void changePlanCurrency(pendingCurrency);
+        setPendingCurrency(null);
+      }}
+    />
+  ) : null;
 
   const discussModal = (
         <DiscussModal
@@ -3408,7 +3390,9 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
     const findMilestone = (milestoneId: string) => allMilestones.find((milestone) => milestone.id === milestoneId) ?? null;
     return (
       <div className={`portal-page ${d.desk}`}>
+        {organizationId ? <A02Slot spot="camino" organizationId={organizationId} connectionId={connectionId} /> : null}
         {completionDialog}
+        {currencyDialog}
         <ClosureSummary closures={payload?.closures ?? []} completed={plan?.status === "completed"} />
         {multiStore && showGeneral ? (
           <div>
@@ -3420,7 +3404,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
         {plan.status === "draft" ? (
           <DraftNotice readiness={draftReadiness(phases, plan.goal)} canManage={canManage} isActivating={isActivating} onActivate={() => void activatePlan(plan.id)} />
         ) : null}
-        {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+        {error ? <ErrorBlock onRetry={() => void loadPlan()}>{error}</ErrorBlock> : null}
         {payload?.marketing_assets_available === false ? (
           <p className="text-sm text-muted" role="status">
             No se pudo comprobar ahora el estado de los borradores de Marketing vinculados a las tareas.
@@ -3431,12 +3415,13 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           phases={phases}
           organizationName={organization?.display_name ?? "El cliente"}
           viewerIsClient={!isConsultantView}
+          replanDraft={payload?.replan_draft ?? null}
           storeName={stores?.find((store) => store.connectionId === connectionId)?.label ?? null}
           objectives={objectivesQuery.data?.objectives ?? []}
           reviews={weeklyReviews}
           marketingAssets={payload?.marketing_assets ?? []}
-          formatGoal={(value) => (plan.goal ? formatPlanGoalValue(value, plan.goal, planCurrency) : String(value))}
-          formatObjective={(value, unit) => formatObjectiveValue(value, unit, planCurrency)}
+          formatGoal={shownGoal}
+          formatObjective={shownObjective}
           canResolveTasks={canResolveTasks}
           canManage={canManage}
           currentUserId={bootstrap.user.id}
@@ -3445,11 +3430,18 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           onActivate={() => void activatePlan(plan.id)}
           isActivating={isActivating}
           onToggleTask={(task) => toggleTaskDone(task as MilestoneTask)}
+          onDiscardTask={(task, reason) => setTaskStatus(task.id, "ignored", "Tarea descartada.", reason)}
+          onReopenTask={(task) => void setTaskStatus(task.id, "pending", "Tarea recuperada.")}
+          onAssignTask={(task, userId) => assignTask(task.id, userId)}
           onGenerateMarketingTask={(task) => void generateMarketingForTask(task as MilestoneTask)}
           onStartMilestone={(milestoneId) => changeMilestoneStatus(milestoneId, "in_progress")}
           onCompleteMilestone={(milestoneId) => {
             const milestone = findMilestone(milestoneId);
             if (milestone) toggleMilestoneComplete(milestone);
+          }}
+          onCloseByException={(milestoneId) => {
+            const milestone = findMilestone(milestoneId);
+            if (milestone) closeByException(milestone);
           }}
           onReopenMilestone={(milestoneId) => changeMilestoneStatus(milestoneId, "in_progress")}
           onSkipMilestone={async (milestoneId) => { const milestone = findMilestone(milestoneId); if (milestone) { setCompletionEvidence(""); setCompletionAction("skipped"); setCompletionMilestone(milestone); } }}
@@ -3460,6 +3452,9 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           onApproveLearning={(reviewId, learningIndex, edits) => approveWeeklyLearning(plan.id, reviewId, learningIndex, edits)}
           onProposalUpdated={() => void loadPlan(true)}
           organizationId={organizationId ?? ""}
+          connectionId={connectionId}
+          currency={amountsCurrency}
+          storeTimezone={payload?.store_timezone ?? null}
           renderMilestoneEditor={(milestoneId, close) => {
             const milestone = findMilestone(milestoneId);
             if (!milestone) return null;
@@ -3509,6 +3504,8 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                 objectivesQuery={objectivesQuery}
                 milestones={milestoneOptions}
                 currency={planCurrency}
+                rate={fxRate}
+                connectionId={connectionId}
                 canManage={canManage}
                 variant="consultant"
               />
@@ -3518,6 +3515,19 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             <PlanSettings
               name={plan.name}
               description={plan.description}
+              version={plan.version}
+              horizonMonths={plan.horizon_months}
+              startsOn={plan.starts_on}
+              timezone={payload?.store_timezone ?? null}
+              previousPlans={payload?.previous_plans ?? []}
+              organizationId={organizationId ?? ""}
+              planId={plan.id}
+              replacesPlan={Boolean(plan.replaces_plan_id)}
+              currencyNote={
+                plan.display_fx
+                  ? `Se muestra en ${plan.display_fx.to}: 1 ${plan.display_fx.from} = ${rateNumber(plan.display_fx.rate)} ${plan.display_fx.to}, tipo BCE del ${rateDate.format(new Date(`${plan.display_fx.rate_date}T00:00:00Z`))}. Los importes guardados siguen en ${plan.display_fx.from}`
+                  : "Convierte con el tipo del BCE del día, sin tocar los importes guardados"
+              }
               onEdit={() => setIsEditingPlan(true)}
               editForm={
                 isEditingPlan ? (
@@ -3538,7 +3548,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   className="w-24"
                   aria-label="Moneda del camino"
                   value={planCurrency}
-                  onChange={(value) => void changePlanCurrency(value)}
+                  onChange={(value) => setPendingCurrency(value === planCurrency ? null : value)}
                   options={
                     CURRENCY_OPTIONS.some((option) => option.value === planCurrency)
                       ? CURRENCY_OPTIONS
@@ -3546,6 +3556,11 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                   }
                 />
               }
+            />
+          }
+          structureSlot={structureTree}
+          dangerSlot={
+            <PlanDanger
               deleteControl={
                 <DeletePlanDialog
                   name={plan.name}
@@ -3555,7 +3570,6 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
               }
             />
           }
-          structureSlot={structureTree}
         />
         {organizationId && plan.goal ? (
           <GoalTargetDialog
@@ -3563,6 +3577,7 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
             organizationId={organizationId}
             planId={plan.id}
             currentTarget={plan.goal.target}
+            rate={fxRate}
             label={`${plan.goal.metric_label}${plan.goal.unit === "money" ? ` (${planCurrency})` : plan.goal.unit === "pct" ? " (%)" : ""}`}
             onClose={() => setIsEditingGoal(false)}
             onSaved={() => void loadPlan(true)}
@@ -3576,7 +3591,9 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
   return (
     <div className={`portal-page space-y-5 sm:space-y-6 ${d.client}`}>
       <WorkPageHeader title="Mi camino">Tu objetivo, los hitos para alcanzarlo y el trabajo que toca ahora.</WorkPageHeader>
+      {organizationId ? <A02Slot spot="camino" organizationId={organizationId} connectionId={connectionId} /> : null}
       {completionDialog}
+        {currencyDialog}
       <ClosureSummary closures={payload?.closures ?? []} completed={plan?.status === "completed"} />
       {multiStore && showGeneral ? (
         <div>
@@ -3604,14 +3621,14 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           goal={plan.goal}
           phases={phases}
           objectives={objectivesQuery.data?.objectives ?? []}
-          formatObjective={(value, unit) => formatObjectiveValue(value, unit, planCurrency)}
+          formatObjective={shownObjective}
           variant="client"
           hasConsultant={!isAutonomous}
           onDiscuss={setDiscuss}
           review={weeklyReviews.find((review) => review.output) ?? null}
           canResolveTasks={canResolveTasks}
           sourceLabels={TASK_SOURCE_LABELS}
-          formatGoal={(value) => (plan.goal ? formatPlanGoalValue(value, plan.goal, planCurrency) : String(value))}
+          formatGoal={shownGoal}
           onToggleTask={(task) => toggleTaskDone(task as MilestoneTask)}
           onGenerateMarketingTask={canManage ? (task) => void generateMarketingForTask(task as MilestoneTask) : undefined}
           generatingTaskId={generatingMarketingTaskId}
@@ -3706,24 +3723,24 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
                         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                           <div className="rounded-md bg-surface-subtle px-3 py-2">
                             <p className="text-[11px] text-muted">Medido</p>
-                            <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.observed_value, plan.goal, planCurrency)}</p>
+                            <p className="text-sm font-semibold">{shownGoal(content.goal_progress.observed_value)}</p>
                           </div>
                           {content.goal_progress.comparison_value !== null ? (
                             <div className="rounded-md bg-surface-subtle px-3 py-2">
                               <p className="text-[11px] text-muted">Periodo anterior</p>
-                              <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.comparison_value, plan.goal, planCurrency)}</p>
+                              <p className="text-sm font-semibold">{shownGoal(content.goal_progress.comparison_value)}</p>
                             </div>
                           ) : null}
                           {content.goal_progress.expected_value != null ? (
                             <div className="rounded-md bg-surface-subtle px-3 py-2">
                               <p className="text-[11px] text-muted">Ritmo de referencia</p>
-                              <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.expected_value, plan.goal, planCurrency)}</p>
+                              <p className="text-sm font-semibold">{shownGoal(content.goal_progress.expected_value)}</p>
                             </div>
                           ) : null}
                           {content.goal_progress.target_value != null ? (
                             <div className="rounded-md bg-surface-subtle px-3 py-2">
                               <p className="text-[11px] text-muted">Objetivo</p>
-                              <p className="text-sm font-semibold">{formatPlanGoalValue(content.goal_progress.target_value, plan.goal, planCurrency)}</p>
+                              <p className="text-sm font-semibold">{shownGoal(content.goal_progress.target_value)}</p>
                             </div>
                           ) : null}
                         </div>
@@ -3846,13 +3863,14 @@ function PlanContent({ bootstrap }: { bootstrap: BootstrapResponse }) {
           objectivesQuery={objectivesQuery}
           milestones={milestoneOptions}
           currency={planCurrency}
+          rate={fxRate}
           connectionId={connectionId}
           canManage={canManage}
           variant={isConsultantView ? "consultant" : "client"}
         />
       ) : null}
 
-      {error ? <ErrorBlock>{error}</ErrorBlock> : null}
+      {error ? <ErrorBlock onRetry={() => void loadPlan()}>{error}</ErrorBlock> : null}
 
       {isLoading ? (
         <AsyncState status="loading" loadingLabel="Cargando plan..." />

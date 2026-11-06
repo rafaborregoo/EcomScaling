@@ -1,5 +1,43 @@
 type Row = Record<string, unknown>;
 
+export function monthlyPlanningWindow(now: Date) {
+  return { start: now.toISOString(), end_exclusive: new Date(now.getTime() + 30 * 86_400_000).toISOString(), days: 30, interpretation: "Próximos treinta días desde el corte, no solo el mes calendario siguiente." };
+}
+
+/** RPC mensual: los ceros generados sin pedidos no acreditan cobertura histórica. */
+export function summarizeMonthlySalesForPlan(rawRows: unknown[], now: Date) {
+  const currentMonth = now.toISOString().slice(0, 7);
+  const numberOrNull = (value: unknown) => {
+    if (value === null || value === undefined || value === "") return null;
+    const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+    return Number.isFinite(number) ? number : null;
+  };
+  const months = rawRows.flatMap((raw) => {
+    const row = asRow(raw);
+    if (!row || typeof row.bucket_month !== "string" || !/^\d{4}-(0[1-9]|1[0-2])-01(?:$|T)/.test(row.bucket_month)) return [];
+    const month = row.bucket_month.slice(0, 7);
+    const orders = numberOrNull(row.orders_count);
+    const observed = orders !== null && orders > 0;
+    return [{
+      month,
+      calendar_period: month < currentMonth ? "closed" as const : month === currentMonth ? "in_progress" as const : "future" as const,
+      observation: observed ? "orders_observed" as const : "no_observed_orders" as const,
+      coverage_verified: false,
+      orders_count: orders,
+      net_sales: observed ? numberOrNull(row.net_sales) : null,
+      gross_sales: observed ? numberOrNull(row.gross_sales) : null,
+      discounts: observed ? numberOrNull(row.discounts) : null,
+      refunds: observed ? numberOrNull(row.refunds) : null,
+      units_sold: observed ? numberOrNull(row.units_sold) : null,
+      aov: observed ? numberOrNull(row.aov) : null,
+    }];
+  }).sort((a, b) => a.month.localeCompare(b.month));
+  return {
+    as_of: now.toISOString(), timezone: "UTC", months,
+    interpretation: "Serie mensual de pedidos sincronizados, no certificación de histórico completo. Mes cerrado es un límite calendario, no prueba de cobertura. El mes actual es parcial y no se compara directamente con meses completos. Sin pedidos observados los importes quedan desconocidos, nunca se deduce demanda cero. Contrastar sincronización, promociones y mismos meses entre años antes de atribuir estacionalidad; no inferir beneficio sin costes verificados.",
+  };
+}
+
 /** Resolve an explicit planner store without broadening to the organization. */
 export function resolvePlanStoreScope(
   connectionId: string | null | undefined,
@@ -123,17 +161,23 @@ export function summarizeRecentPlanTaskOutcomes(
   }).slice(0, limit);
 }
 
-/**
- * Backlog abierto en un tamaño que cabe en el contexto. Un Camino aprobado
- * vuelca decenas de tareas con descripciones largas: enviadas enteras truncan
- * el contexto y el planificador concluía "ya está cubierto". Aquí lo cercano
- * (vencido, en curso, sin fecha o dentro de la ventana) va con detalle y lo
- * lejano solo como recuento y titulares con fecha.
- */
+/** Dos semanas completas consecutivas en UTC y un acumulado mensual explícito. */
+export function weeklyPlanWindows(now: Date) {
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const start = new Date(end.getTime() - 7 * 86_400_000);
+  return {
+    timezone: "UTC",
+    current: { start: start.toISOString(), end: end.toISOString() },
+    previous: { start: new Date(start.getTime() - 7 * 86_400_000).toISOString(), end: start.toISOString() },
+    month_to_date: { start: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString(), end: now.toISOString() },
+  };
+}
+
+/** Backlog resumido; A17 puede conservar todos los títulos para deduplicar. */
 export function summarizeOpenTasksForPlan(
   rawTasks: unknown[],
   selectedStoreId: string | null,
-  options: { now?: number; nearDays?: number; nearLimit?: number; laterLimit?: number; totalCount?: number | null } = {},
+  options: { now?: number; nearDays?: number; nearLimit?: number; laterLimit?: number; totalCount?: number | null; includeDeduplicationIndex?: boolean } = {},
 ) {
   const now = options.now ?? Date.now();
   const nearDays = options.nearDays ?? 14;
@@ -177,6 +221,7 @@ export function summarizeOpenTasksForPlan(
   const laterLimit = options.laterLimit ?? 15;
   return {
     scope: selectedStoreId ? ("store_plus_unscoped" as const) : ("organization" as const),
+    ...(options.includeDeduplicationIndex ? { deduplication_index: [...near, ...later].map((task) => ({ title: task.title, due_at: task.due_at })) } : {}),
     total_open: options.totalCount ?? total,
     sample_truncated: options.totalCount !== null && options.totalCount !== undefined && options.totalCount > rawTasks.length,
     query_omitted: Math.max(0, (options.totalCount ?? rawTasks.length) - rawTasks.length),
@@ -243,7 +288,7 @@ export function summarizeMonthlyPlanCapacity(
     estimated_effort_hours: null,
     available_capacity_hours: null,
     capacity_status: "not_quantifiable" as const,
-    capacity_limit: "Las bandas cualitativas de esfuerzo describen solo tareas que las tienen; no hay capacidad mensual configurada ni equivalencia validada a horas, así que los datos no calculan disponibilidad.",
+    capacity_limit: "Las bandas cualitativas de esfuerzo describen solo tareas que las tienen; no hay capacidad configurada ni equivalencia validada a horas, así que los datos no calculan disponibilidad.",
   };
 }
 
@@ -333,6 +378,7 @@ export function summarizeActiveCaminoForPlan(rawPlan: unknown, selectedStoreId: 
         rationale: text(goal.rationale, 300),
       };
     })(),
+    plan_id: text(plan.id, 64),
     version: typeof plan.version === "number" ? plan.version : null,
     phases: phases.flatMap((rawPhase) => {
       const phase = asRow(rawPhase);
@@ -401,7 +447,9 @@ export function compactSpecialistOutputsForPlan(blockData: unknown, limit = 10) 
         output_id: text(run.output_id, 64),
         as_of: text(run.as_of, 40),
         valid_until: text(run.valid_until, 40),
-        reviewed_by_consultant: run.output_status !== "pending_approval",
+        output_status: text(run.output_status, 40) ?? "unknown",
+        human_review: "not_verified" as const,
+        inherited_execution_authorized: false as const,
         conclusion: text(summary.answer ?? summary.diagnosis, 320),
         findings: findings.slice(0, 3).flatMap((rawFinding) => {
           const finding = asRow(rawFinding);
@@ -415,7 +463,7 @@ export function compactSpecialistOutputsForPlan(blockData: unknown, limit = 10) 
         }),
       }];
     }),
-    interpretation: "Análisis recientes de otros agentes sobre esta tienda. Úsalos para decidir qué toca HOY (el primer paso concreto de lo que recomiendan), citando su output_id; no los copies como tarea ni los presentes como cifras actuales. Pasado valid_until son solo pistas. reviewed_by_consultant=false: análisis aún sin revisar, úsalo como indicio y dilo si apoyas una tarea en él.",
+    interpretation: "Análisis recientes de otros agentes sobre esta tienda: son evidencia contextual, nunca una aprobación heredada. El estado approved no acredita por sí solo revisión humana ni revisión del consultor. Las propuestas pendientes son indicios; comprueba evidencia vigente y cita output_id antes de proponer trabajo. No copies escrituras, responsables o IDs del análisis como tareas autorizadas. Cada nueva propuesta necesita su propia decisión y validación de ámbito. Pasado valid_until son solo pistas y no cifras actuales.",
   };
 }
 
